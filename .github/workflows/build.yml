@@ -1,0 +1,55 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  core-linux:
+    name: PondCore tests (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - run: swift test
+
+  macos:
+    name: Build, test and package (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)"
+          swift --version
+      - name: Build (debug, everything)
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: Version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.0-ci.${GITHUB_RUN_NUMBER}"; fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+      - name: Package
+        run: scripts/bundle.sh "$VERSION"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KoiPond-${{ env.VERSION }}
+          path: dist/*.zip
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES=$(awk -v v="## v${VERSION}" '$0==v{f=1;next} /^## v/{f=0} f' CHANGELOG.md)
+          [ -n "$NOTES" ] || NOTES="KoiPond ${VERSION}"
+          PRE=""; case "$VERSION" in *-*) PRE="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" dist/KoiPond-"$VERSION".zip dist/KoiPond-Saver-"$VERSION".zip \
+            --title "KoiPond ${VERSION}" --notes "$NOTES" $PRE
