@@ -10,6 +10,8 @@ final class AppState: ObservableObject {
     @Published var wallpaperClickFeeds: Bool { didSet { defaults.set(wallpaperClickFeeds, forKey: Keys.wallpaperClicks) } }
     @Published var autoCheckUpdates: Bool { didSet { defaults.set(autoCheckUpdates, forKey: Keys.autoUpdate) } }
     @Published var includePrereleases: Bool { didSet { defaults.set(includePrereleases, forKey: Keys.prerelease) } }
+    @Published var windowProfile: PowerProfile { didSet { defaults.set(windowProfile.rawValue, forKey: Keys.windowProfile) } }
+    @Published var wallpaperProfile: PowerProfile { didSet { defaults.set(wallpaperProfile.rawValue, forKey: Keys.wallpaperProfile) } }
     @Published var lastSaveError: String?
 
     private let defaults = UserDefaults.standard
@@ -19,6 +21,7 @@ final class AppState: ObservableObject {
         static let window = "windowMode", wallpaper = "wallpaperMode", wallpaperClicks = "wallpaperClickFeeds"
         static let autoUpdate = "autoCheckUpdates", prerelease = "includePrereleases"
         static let lastCheck = "lastUpdateCheck", skipped = "skippedVersion"
+        static let windowProfile = "windowProfile", wallpaperProfile = "wallpaperProfile"
     }
 
     static var supportDirectory: URL {
@@ -36,6 +39,8 @@ final class AppState: ObservableObject {
         wallpaperClickFeeds = defaults.bool(forKey: Keys.wallpaperClicks)
         autoCheckUpdates = defaults.bool(forKey: Keys.autoUpdate)
         includePrereleases = defaults.bool(forKey: Keys.prerelease)
+        windowProfile = PowerProfile(rawValue: defaults.string(forKey: Keys.windowProfile) ?? "") ?? .smooth
+        wallpaperProfile = PowerProfile(rawValue: defaults.string(forKey: Keys.wallpaperProfile) ?? "") ?? .balanced
         if let data = try? Data(contentsOf: AppState.configURL), let c = try? PondConfig.decode(data) {
             config = c
         } else {

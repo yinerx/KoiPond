@@ -68,6 +68,10 @@ public final class World {
     public private(set) var particles: [Particle] = []
     public private(set) var eaten = 0
     public var fps: Double = 0
+    /// Performance lines drawn bottom-left when "show performance" is on (filled in by the renderer).
+    public var hudLines: [String] = []
+    /// Last moment something visibly happened: food, ripples, particles, a fast pointer, a fleeing animal.
+    public private(set) var lastBusy: Double = -100
 
     // pointer
     public private(set) var pointer = Vec2(-1e9, -1e9)
@@ -217,8 +221,19 @@ public final class World {
         pointerSpeed *= exp(-8 * dt)
     }
 
+    /// True while the pond should run at its fast frame rate (activity, plus `hold` seconds after it).
+    public func wantsFastFrames(hold: Double) -> Bool { time - lastBusy < hold }
+
+    /// Something visible is happening right now.
+    public var isBusyNow: Bool {
+        if !pellets.isEmpty || !ripples.isEmpty || !particles.isEmpty { return true }
+        if pointerActive && pointerSpeed > 300 { return true }
+        return creatures.contains { ($0 as? SpineSwimmer).map { $0.fear > 0.05 } ?? false }
+    }
+
     func tick(_ dt: Double) {
         time += dt
+        if isBusyNow { lastBusy = time }
         let g = config.global
         // pellets: fly, land (small ripple, koi notice), drift, dissolve
         var landedNow: [Vec2] = []
@@ -292,7 +307,10 @@ public final class World {
             else { grid.overlay(cx, cy, glyph: q.glyph, fg: col, onlyEmpty: false) }
         }
         if config.global.showCounter { drawCounter(grid) }
-        if config.global.showFPS { drawText(String(format: "%.0f fps", fps), col: 1, row: grid.rows - 2, grid) }
+        if config.global.showFPS {
+            let lines = hudLines.isEmpty ? [String(format: "%.0f fps", fps)] : hudLines
+            for (i, l) in lines.enumerated() { drawText(l, col: 1, row: grid.rows - 1 - lines.count + i, grid) }
+        }
     }
 
     func drawRipple(_ r: Ripple, _ g: CellGrid) {

@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     lazy var wallpaper = WallpaperController(state: state)
     private var pondWindow: NSWindow?
     private var pondView: PondView?
+    private let windowDriver = PondDriver()
     private var configWindow: NSWindow?
     private var statusItem: NSStatusItem?
     private var bag: Set<AnyCancellable> = []
@@ -26,6 +27,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }.store(in: &bag)
         state.$windowMode.removeDuplicates().sink { [weak self] on in
             DispatchQueue.main.async { self?.setWindow(on) }
+        }.store(in: &bag)
+        state.$windowProfile.removeDuplicates().sink { [weak self] p in
+            self?.pondView?.profile = p
+            self?.windowDriver.kick()
+        }.store(in: &bag)
+        state.$wallpaperProfile.removeDuplicates().sink { [weak self] p in
+            self?.wallpaper.setProfile(p)
         }.store(in: &bag)
         state.$wallpaperMode.removeDuplicates().sink { [weak self] on in
             DispatchQueue.main.async { self?.setWallpaper(on) }
@@ -52,10 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if on {
             if pondWindow == nil { makePondWindow() }
             pondWindow?.makeKeyAndOrderFront(nil)
-            pondView?.isPaused = false
+            windowDriver.kick()
         } else {
-            pondWindow?.orderOut(nil)
-            pondView?.isPaused = true
+            pondWindow?.orderOut(nil)   // the driver notices the window is gone and stops
         }
         updateActivationPolicy()
     }
@@ -85,11 +92,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         w.minSize = NSSize(width: 360, height: 260)
         w.collectionBehavior = [.fullScreenPrimary]
         let v = PondView(frame: frame, config: state.config, interactive: true)
+        v.profile = state.windowProfile
         v.autoresizingMask = [.width, .height]
         w.contentView = v
         w.delegate = self
         pondWindow = w
         pondView = v
+        windowDriver.add(v)
     }
 
     func windowWillClose(_ note: Notification) {

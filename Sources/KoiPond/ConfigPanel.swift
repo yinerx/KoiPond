@@ -118,7 +118,7 @@ struct GlobalEditor: View {
                 SliderRow(title: "方块间隙", value: $state.config.global.tileGap, range: 0...6, step: 0.5, format: "%.1f pt")
                 Toggle("阴影", isOn: $state.config.global.shadows)
                 Toggle("显示计数（锦鲤 / 鱼饵）", isOn: $state.config.global.showCounter)
-                Toggle("显示帧率", isOn: $state.config.global.showFPS)
+                Toggle("显示性能信息（帧率、每帧耗时、内存）", isOn: $state.config.global.showFPS)
             }
             Section("水与鱼饵") {
                 SliderRow(title: "模拟速度", value: $state.config.global.simulationSpeed, range: 0...3, step: 0.05, format: "%.2f×")
@@ -161,6 +161,18 @@ struct DisplaySettings: View {
                 Toggle("桌面壁纸（铺在桌面图标下方）", isOn: $state.wallpaperMode)
                 Toggle("壁纸模式下点击桌面空白处撒饵", isOn: $state.wallpaperClickFeeds).disabled(!state.wallpaperMode)
                 Text("壁纸模式不需要任何系统权限：KoiPond 只在你点击桌面空白处时撒饵，点在其他窗口上不会触发。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("能耗") {
+                Picker("窗口", selection: $state.windowProfile) {
+                    ForEach(PowerProfile.allCases) { Text($0.displayName).tag($0) }
+                }
+                Text(state.windowProfile.summary).font(.caption).foregroundStyle(.secondary)
+                Picker("桌面壁纸", selection: $state.wallpaperProfile) {
+                    ForEach(PowerProfile.allCases) { Text($0.displayName).tag($0) }
+                }
+                Text(state.wallpaperProfile.summary).font(.caption).foregroundStyle(.secondary)
+                Text("池塘被窗口完全挡住、显示器睡眠、锁屏、切换用户、屏保运行时会完全暂停。开启低电量模式或 Mac 过热时，自动改用「省电」。在「全局设置」里打开「显示性能信息」可以看到帧率、每帧耗时和内存。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("屏幕保护程序") {

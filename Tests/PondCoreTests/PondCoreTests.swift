@@ -145,17 +145,18 @@ final class WorldTests: XCTestCase {
     func testLiveCountChangeKeepsIndividuals() {
         var g = EntityGroup(kind: .koi, count: 3)
         let w = World(config: PondConfig(groups: [g]), width: 900, height: 600, seed: 1)
-        let first = ObjectIdentifier(w.creatures[0])
+        // hold a strong reference: a freed object's address can be reused by its replacement
+        let first = w.creatures[0]
         g.count = 5
         w.apply(config: PondConfig(groups: [g]))
         XCTAssertEqual(w.creatures.count, 5)
-        XCTAssertEqual(ObjectIdentifier(w.creatures[0]), first, "existing koi stay")
+        XCTAssertTrue(w.creatures[0] === first, "existing koi stay")
         g.speed = 2       // behaviour-only change: nobody respawns
         w.apply(config: PondConfig(groups: [g]))
-        XCTAssertEqual(ObjectIdentifier(w.creatures[0]), first)
+        XCTAssertTrue(w.creatures[0] === first)
         g.sizeMax = 2     // look change: the group respawns
         w.apply(config: PondConfig(groups: [g]))
-        XCTAssertNotEqual(ObjectIdentifier(w.creatures[0]), first)
+        XCTAssertFalse(w.creatures.contains { $0 === first }, "the group was respawned")
         g.enabled = false
         w.apply(config: PondConfig(groups: [g]))
         XCTAssertEqual(w.creatures.count, 0)
@@ -197,5 +198,33 @@ final class SettingsPaneTests: XCTestCase {
     func testNothingSuitable() {
         XCTAssertNil(SettingsPane.screenSaver(in: [C(identifier: "com.apple.Sound-Settings.extension", name: "Sound")]))
         XCTAssertEqual(SettingsPane.url(for: C(identifier: "com.apple.X", name: ""))?.absoluteString, "x-apple.systempreferences:com.apple.X")
+    }
+}
+
+final class PowerTests: XCTestCase {
+    func testProfiles() {
+        for p in PowerProfile.allCases {
+            XCTAssertLessThanOrEqual(p.calmFPS, p.activeFPS)
+            XCTAssertGreaterThan(p.resolutionScale, 0)
+        }
+        XCTAssertLessThan(PowerProfile.saver.calmFPS, PowerProfile.balanced.calmFPS)
+        XCTAssertLessThan(PowerProfile.balanced.calmFPS, PowerProfile.smooth.calmFPS)
+        XCTAssertEqual(PowerProfile.smooth.effective(lowPowerMode: true, thermalSerious: false), .saver)
+        XCTAssertEqual(PowerProfile.balanced.effective(lowPowerMode: false, thermalSerious: true), .saver)
+        XCTAssertEqual(PowerProfile.balanced.effective(lowPowerMode: false, thermalSerious: false), .balanced)
+    }
+
+    func testCalmPondRunsSlowFeedingRunsFast() {
+        var g = EntityGroup(kind: .koi, count: 4); g.params.curiosity = 1
+        let w = World(config: PondConfig(groups: [g]), width: 1000, height: 700, seed: 8)
+        for _ in 0..<(60 * 5) { w.tick(World.step) }
+        let hold = PowerProfile.balanced.activeHold
+        XCTAssertFalse(w.wantsFastFrames(hold: hold), "nothing happening: calm frame rate")
+        w.feed(at: Vec2(500, 350))
+        w.tick(World.step)
+        XCTAssertTrue(w.wantsFastFrames(hold: hold), "food and ripples: fast frame rate")
+        // once the food is gone and the water is still again, it calms down
+        for _ in 0..<(60 * 40) { w.tick(World.step) }
+        XCTAssertFalse(w.wantsFastFrames(hold: hold))
     }
 }

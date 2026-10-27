@@ -18,7 +18,7 @@ public final class KoiPondSaverView: ScreenSaverView {
         let v = PondView(frame: bounds, config: config, interactive: false)
         v.autoresizingMask = [.width, .height]
         v.autoFeedInterval = 18
-        v.externallyDriven = true           // frames come from animateOneFrame
+        v.profile = .balanced              // frames come from animateOneFrame, at the rate the pond asks for
         addSubview(v)
         pond = v
     }
@@ -35,6 +35,11 @@ public final class KoiPondSaverView: ScreenSaverView {
         return Preset.koiPond.config
     }
 
-    public override func animateOneFrame() { pond?.renderFrame() }
+    public override func animateOneFrame() {
+        guard let pond else { return }
+        pond.renderFrame()
+        let iv = 1 / pond.desiredFPS
+        if abs(iv - animationTimeInterval) > 0.001 { animationTimeInterval = iv }
+    }
     public override var hasConfigureSheet: Bool { false }
 }
