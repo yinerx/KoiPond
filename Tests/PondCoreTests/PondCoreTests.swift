@@ -175,3 +175,27 @@ final class WorldTests: XCTestCase {
         XCTAssertEqual(Glyph.line(angle: -.pi / 4), UInt8(ascii: "/"))
     }
 }
+
+final class SettingsPaneTests: XCTestCase {
+    typealias C = SettingsPane.Candidate
+    func testPrefersTheScreenSaverPage() {
+        let panes = [C(identifier: "com.apple.Wallpaper-Settings.extension", name: "Wallpaper"),
+                     C(identifier: "com.apple.Displays-Settings.extension", name: "Displays"),
+                     C(identifier: "com.apple.ScreenSaver-Settings.extension", name: "Screen Saver")]
+        XCTAssertEqual(SettingsPane.screenSaver(in: panes)?.identifier, "com.apple.ScreenSaver-Settings.extension")
+    }
+    func testMatchesByLocalizedNameWhenTheIdentifierChanged() {
+        let panes = [C(identifier: "com.apple.settings.Desktop", name: "墙纸"),
+                     C(identifier: "com.apple.settings.Idle", name: "屏幕保护程序")]
+        XCTAssertEqual(SettingsPane.screenSaver(in: panes)?.identifier, "com.apple.settings.Idle")
+    }
+    func testFallsBackToWallpaper() {
+        let panes = [C(identifier: "com.apple.Wallpaper-Settings.extension", name: "Wallpaper"),
+                     C(identifier: "com.apple.Sound-Settings.extension", name: "Sound")]
+        XCTAssertEqual(SettingsPane.screenSaver(in: panes)?.identifier, "com.apple.Wallpaper-Settings.extension")
+    }
+    func testNothingSuitable() {
+        XCTAssertNil(SettingsPane.screenSaver(in: [C(identifier: "com.apple.Sound-Settings.extension", name: "Sound")]))
+        XCTAssertEqual(SettingsPane.url(for: C(identifier: "com.apple.X", name: ""))?.absoluteString, "x-apple.systempreferences:com.apple.X")
+    }
+}
