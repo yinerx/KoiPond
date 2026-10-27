@@ -19,11 +19,39 @@ enum ScreenSaverInstaller {
             .appendingPathComponent("Library/Containers/com.apple.ScreenSaver.Engine.legacyScreenSaver/Data/Library/Application Support/KoiPond/config.json")
     }
 
-    /// Copies the saver into ~/Library/Screen Savers, syncs the config and opens the Screen Saver settings.
+    /// Hands the saver to macOS's own installer: opening a .saver shows the system's "install screen saver"
+    /// prompt, installs it and lands in Screen Saver settings with KoiPond selected — on every macOS version,
+    /// unlike a Settings deep link whose pane identifier changes between releases.
     static func install(config: PondConfig) -> String {
         guard let src = bundledSaver else {
             return "这个版本里没有屏保组件（从源码直接运行时没有）。请使用 GitHub Releases 里的安装包。"
         }
+        sync(config: config)
+        let fm = FileManager.default
+        let staging = fm.temporaryDirectory.appendingPathComponent("KoiPondSaver-\(UUID().uuidString)", isDirectory: true)
+        let staged = staging.appendingPathComponent(saverName)
+        do {
+            try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+            try fm.copyItem(at: src, to: staged)
+            // an app opened via right-click → Open still carries quarantine; the installer would refuse the copy
+            _ = try? UpdateChecker.run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", staged.path])
+        } catch {
+            return installManually(src: src, reason: error.localizedDescription)
+        }
+        NSWorkspace.shared.open(staged, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+            guard let error else { return }
+            DispatchQueue.main.async {
+                let a = NSAlert()
+                a.messageText = "屏幕保护程序"
+                a.informativeText = installManually(src: src, reason: error.localizedDescription)
+                a.runModal()
+            }
+        }
+        return "已打开系统的安装窗口。选择「仅为此用户安装」后，系统设置会跳到屏幕保护程序并选中 KoiPond。"
+    }
+
+    /// Fallback: copy it ourselves and open System Settings near the right place.
+    static func installManually(src: URL, reason: String) -> String {
         let fm = FileManager.default
         do {
             try fm.createDirectory(at: installedSaver.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -33,11 +61,10 @@ enum ScreenSaverInstaller {
         } catch {
             return "安装失败：\(error.localizedDescription)"
         }
-        let synced = sync(config: config)
-        if let url = URL(string: "x-apple.systempreferences:com.apple.ScreenSaver-Settings.extension") {
-            NSWorkspace.shared.open(url)
+        for id in ["com.apple.ScreenSaver-Settings.extension", "com.apple.Wallpaper-Settings.extension"] {
+            if let url = URL(string: "x-apple.systempreferences:\(id)"), NSWorkspace.shared.open(url) { break }
         }
-        return "已安装到「~/Library/Screen Savers」。在系统设置的屏幕保护程序里选择 KoiPond。" + (synced.hasPrefix("已") ? "" : "\n" + synced)
+        return "系统安装窗口没能打开（\(reason)），已直接装到「~/Library/Screen Savers」。请在系统设置的「屏幕保护程序」里选择 KoiPond。"
     }
 
     @discardableResult

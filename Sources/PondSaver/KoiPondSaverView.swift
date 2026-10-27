@@ -11,13 +11,14 @@ public final class KoiPondSaverView: ScreenSaverView {
 
     public override init?(frame: NSRect, isPreview: Bool) {
         super.init(frame: frame, isPreview: isPreview)
-        animationTimeInterval = 1.0 / 30
+        animationTimeInterval = 1.0 / 60
         wantsLayer = true
         var config = KoiPondSaverView.loadConfig()
         if isPreview { config.global.showCounter = false }
         let v = PondView(frame: bounds, config: config, interactive: false)
         v.autoresizingMask = [.width, .height]
         v.autoFeedInterval = 18
+        v.externallyDriven = true           // frames come from animateOneFrame
         addSubview(v)
         pond = v
     }
@@ -34,9 +35,6 @@ public final class KoiPondSaverView: ScreenSaverView {
         return Preset.koiPond.config
     }
 
-    public override func startAnimation() { super.startAnimation(); pond?.isPaused = false }
-    public override func stopAnimation() { super.stopAnimation(); pond?.isPaused = true }
-    // the MTKView draws itself; nothing to do per ScreenSaver tick
-    public override func animateOneFrame() {}
+    public override func animateOneFrame() { pond?.renderFrame() }
     public override var hasConfigureSheet: Bool { false }
 }

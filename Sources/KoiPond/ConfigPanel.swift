@@ -169,7 +169,7 @@ struct DisplaySettings: View {
                     Button("把当前配置同步到屏保") { saverMessage = ScreenSaverInstaller.sync(config: state.config) }
                 }
                 if let m = saverMessage { Text(m).font(.caption).foregroundStyle(.secondary) }
-                Text("屏保里的锦鲤会定时自动喂食。修改配置后点「同步」，屏保下次启动时生效。").font(.caption).foregroundStyle(.secondary)
+                Text("点「安装」会弹出系统的安装窗口，装好后系统设置会跳到屏幕保护程序。屏保里的锦鲤会定时自动喂食。修改配置后点「同步」，屏保下次启动时生效。").font(.caption).foregroundStyle(.secondary)
             }
             Section("更新") {
                 LabeledContent("当前版本", value: UpdateChecker.currentVersion)

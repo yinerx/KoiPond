@@ -9,6 +9,7 @@ final class WallpaperController {
     private var clickMonitor: Any?
     private var moveMonitor: Any?
     private var screenObserver: NSObjectProtocol?
+    private var frameTimer: Timer?
     private let state: AppState
 
     init(state: AppState) { self.state = state }
@@ -19,6 +20,13 @@ final class WallpaperController {
     func start() {
         guard windows.isEmpty else { return }
         buildWindows()
+        // one timer drives every screen's pond (see PondView.externallyDriven)
+        let t = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            for (w, v) in self.windows where w.isVisible { v.renderFrame() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        frameTimer = t
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in self?.handleClick() }
         moveMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in self?.handleMove() }
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
@@ -28,6 +36,8 @@ final class WallpaperController {
     }
 
     func stop() {
+        frameTimer?.invalidate()
+        frameTimer = nil
         for (w, _) in windows { w.orderOut(nil) }
         windows.removeAll()
         if let m = clickMonitor { NSEvent.removeMonitor(m) }
@@ -46,19 +56,24 @@ final class WallpaperController {
 
     private func buildWindows() {
         for screen in NSScreen.screens {
-            let w = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false, screen: screen)
+            // global coordinates, no `screen:` argument: with it, AppKit reads the rect relative to that screen
+            // and a secondary display's window lands offset by its origin twice
+            let w = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
             w.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)))
             w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenNone]
             w.ignoresMouseEvents = true
             w.isOpaque = true
             w.hasShadow = false
             w.isReleasedWhenClosed = false
-            w.backgroundColor = .black
+            let bg = Palette.make(state.config.global).background
+            w.backgroundColor = NSColor(srgbRed: CGFloat(bg.r) / 255, green: CGFloat(bg.g) / 255, blue: CGFloat(bg.b) / 255, alpha: 1)
             let v = PondView(frame: NSRect(origin: .zero, size: screen.frame.size), config: state.config, interactive: false)
             v.autoresizingMask = [.width, .height]
+            v.externallyDriven = true
             w.contentView = v
             w.setFrame(screen.frame, display: false)
             w.orderFront(nil)
+            w.setFrame(screen.frame, display: true)   // again once on screen, in case the first was constrained
             windows.append((w, v))
         }
     }

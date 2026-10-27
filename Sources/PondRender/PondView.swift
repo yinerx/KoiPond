@@ -17,6 +17,13 @@ public final class PondView: MTKView, MTKViewDelegate {
     public var interactive: Bool
     /// Seconds between automatic feedings (screen saver); 0 = never.
     public var autoFeedInterval: Double = 0
+    /// When true, MetalKit's own per-screen display link is off and the owner calls `renderFrame()`
+    /// (the wallpaper's shared timer, the screen saver's frame callback). MetalKit's link stops drawing
+    /// for windows it considers off-screen or occluded, which desktop-level windows on other displays can be.
+    public var externallyDriven = false { didSet { isPaused = externallyDriven } }
+
+    /// Renders one frame now (simulation advances by real elapsed time).
+    public func renderFrame() { draw() }
 
     public init(frame: NSRect, config: PondConfig, interactive: Bool = true) {
         self.interactive = interactive
