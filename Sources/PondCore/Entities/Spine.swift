@@ -76,8 +76,9 @@ public struct Spine: Sendable {
         for p in nodes { lo = Vec2(min(lo.x, p.x), min(lo.y, p.y)); hi = Vec2(max(hi.x, p.x), max(hi.y, p.y)) }
         let m = maxWidth + pad + g.cellSize
         let (c0, r0) = g.cellOf(lo - Vec2(m, m)), (c1, r1) = g.cellOf(hi + Vec2(m, m))
-        for r in max(0, r0)...min(g.rows - 1, max(0, r1)) where r0 <= r1 {
-            for c in max(0, c0)...min(g.cols - 1, max(0, c1)) where c0 <= c1 {
+        guard let span = g.clip(cols: c0, c1, rows: r0, r1) else { return }
+        for r in span.rows {
+            for c in span.cols {
                 let pr = project(g.center(c, r))
                 let w = max(0.5, width(pr.s))
                 let d = abs(pr.lateral)

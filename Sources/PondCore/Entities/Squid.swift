@@ -103,9 +103,9 @@ public final class Squid: Creature, Relocatable {
         let lo = Vec2(min(pos.x, tip.x), min(pos.y, tip.y)) - Vec2(halfW * 2, halfW * 2)
         let hi = Vec2(max(pos.x, tip.x), max(pos.y, tip.y)) + Vec2(halfW * 2, halfW * 2)
         let (c0, r0) = g.cellOf(lo), (c1, r1) = g.cellOf(hi)
-        guard r0 <= r1, c0 <= c1 else { return }
-        for row in max(0, r0)...max(0, min(g.rows - 1, r1)) {
-            for col in max(0, c0)...max(0, min(g.cols - 1, c1)) {
+        guard let span = g.clip(cols: c0, c1, rows: r0, r1) else { return }
+        for row in span.rows {
+            for col in span.cols {
                 let d = g.center(col, row) - pos
                 let s = d.dot(fwd) / mantleLen, v = d.dot(side)
                 guard s >= -0.12, s <= 1.05 else { continue }

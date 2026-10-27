@@ -66,7 +66,22 @@ public final class CellGrid {
     @inlinable public func index(_ col: Int, _ row: Int) -> Int? {
         (col >= 0 && row >= 0 && col < cols && row < rows) ? row * cols + col : nil
     }
-    @inlinable public func cellOf(_ p: Vec2) -> (Int, Int) { (Int(floor(p.x / cellSize)), Int(floor(p.y / cellSize))) }
+    /// Cell containing p. Non-finite or huge coordinates map far outside the grid instead of trapping.
+    @inlinable public func cellOf(_ p: Vec2) -> (Int, Int) {
+        @inline(__always) func cell(_ v: Double) -> Int {
+            guard v.isFinite else { return -1_000_000 }
+            return Int(clamp(floor(v / cellSize), -1_000_000, 1_000_000))
+        }
+        return (cell(p.x), cell(p.y))
+    }
+
+    /// Columns c0…c1 and rows r0…r1 clipped to the grid; nil when none of it is on screen.
+    /// (A plain `max(0, a)...min(n - 1, b)` traps once something swims past an edge.)
+    @inlinable public func clip(cols c0: Int, _ c1: Int, rows r0: Int, _ r1: Int) -> (cols: ClosedRange<Int>, rows: ClosedRange<Int>)? {
+        let a = max(0, c0), b = min(cols - 1, c1), c = max(0, r0), d = min(rows - 1, r1)
+        guard a <= b, c <= d else { return nil }
+        return (a...b, c...d)
+    }
     @inlinable public func center(_ col: Int, _ row: Int) -> Vec2 { Vec2((Double(col) + 0.5) * cellSize, (Double(row) + 0.5) * cellSize) }
 
     /// Writes a cell if `z` is at least as near as what is there. A clear bg keeps the old bg.
@@ -95,7 +110,8 @@ public final class CellGrid {
     /// A line of direction-following glyphs from a to b.
     public func line(_ a: Vec2, _ b: Vec2, fg: RGBA, z: Float, glyph: UInt8? = nil) {
         let d = b - a, len = d.length
-        let steps = max(1, Int(len / (cellSize * 0.6)))
+        guard len.isFinite else { return }
+        let steps = max(1, min(4000, Int(len / (cellSize * 0.6))))
         let g = glyph ?? Glyph.line(angle: d.angle)
         var last = (Int.min, Int.min)
         for s in 0...steps {

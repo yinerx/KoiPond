@@ -112,9 +112,9 @@ public final class WaterLily: Creature, Relocatable {
             let c = base + pad.off
             let R = pad.r
             let (c0, r0) = g.cellOf(c - Vec2(R, R)), (c1, r1) = g.cellOf(c + Vec2(R, R))
-            guard r0 <= r1, c0 <= c1 else { continue }
-            for row in max(0, r0)...max(0, min(g.rows - 1, r1)) {
-                for col in max(0, c0)...max(0, min(g.cols - 1, c1)) {
+            guard let span = g.clip(cols: c0, c1, rows: r0, r1) else { continue }
+            for row in span.rows {
+                for col in span.cols {
                     let d = g.center(col, row) - c
                     let dist = (Vec2(d.x, d.y / 0.85)).length
                     guard dist <= R else { continue }

@@ -90,9 +90,9 @@ public final class Turtle: Creature, Relocatable {
         let shadows = w.config.global.shadows && depth < 0.5
         let pad = shadows ? g.cellSize * 0.9 : 0
         let (c0, r0) = g.cellOf(pos - Vec2(a + pad + 4, a + pad + 4)), (c1, r1) = g.cellOf(pos + Vec2(a + pad + 4, a + pad + 4))
-        guard r0 <= r1, c0 <= c1 else { return }
-        for row in max(0, r0)...max(0, min(g.rows - 1, r1)) {
-            for col in max(0, c0)...max(0, min(g.cols - 1, c1)) {
+        guard let span = g.clip(cols: c0, c1, rows: r0, r1) else { return }
+        for row in span.rows {
+            for col in span.cols {
                 let d = g.center(col, row) - pos
                 let u = d.dot(fwd), v = d.dot(side)
                 let q = (u / a) * (u / a) + (v / b) * (v / b)

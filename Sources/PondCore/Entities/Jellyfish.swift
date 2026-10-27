@@ -106,9 +106,9 @@ public final class Jellyfish: Creature, Relocatable {
         let ax = r * (1 - 0.22 * c), ay = r * (1 + 0.08 * c)
         let fwd = Vec2.polar(heading), side = fwd.perp
         let (c0, r0) = g.cellOf(pos - Vec2(r * 1.2, r * 1.2)), (c1, r1) = g.cellOf(pos + Vec2(r * 1.2, r * 1.2))
-        guard r0 <= r1, c0 <= c1 else { return }
-        for row in max(0, r0)...max(0, min(g.rows - 1, r1)) {
-            for col in max(0, c0)...max(0, min(g.cols - 1, c1)) {
+        guard let span = g.clip(cols: c0, c1, rows: r0, r1) else { return }
+        for row in span.rows {
+            for col in span.cols {
                 let d = g.center(col, row) - pos
                 let u = d.dot(fwd) / ax, v = d.dot(side) / ay
                 let q = u * u + v * v
