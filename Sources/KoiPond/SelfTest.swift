@@ -66,17 +66,47 @@ final class SelfTest {
                     self.expect(w.rendered >= 54, "smooth wallpaper \(i + 1) keeps 60 fps with two buffers (\(f(w.rendered))/s rendered)")
                     self.expect(w.onScreen >= 45, "smooth wallpaper \(i + 1) presents its frames (\(f(w.onScreen))/s)")
                 }
-                self.phaseCovered()
+                self.phaseHidden()
             }
         }
     }
 
-    /// Covered: everything stops; after a few seconds hidden the frame buffers are handed back (A).
-    private func phaseCovered() {
+    /// A: hidden without any covering window (those would take memory themselves and blur the number):
+    /// the window is ordered out and the wallpaper is marked covered. After a few seconds every view must
+    /// have released its frame buffers and the footprint must drop accordingly.
+    private func phaseHidden() {
         let views = [pond!] + wallpaper.views
         let held = views.reduce(0) { $0 + $1.bufferBytes }
         let before = PondView.footprintMB()
-        say("before covering: frame buffers \(f(Double(held) / 1_048_576)) MB, footprint \(f(before)) MB")
+        say("before hiding: frame buffers \(f(Double(held) / 1_048_576)) MB, footprint \(f(before)) MB")
+        pondWindow.orderOut(nil)
+        wallpaper.forceCovered = true
+        after(pond.releaseAfter + 2.5) {
+            for (i, v) in views.enumerated() {
+                self.expect(v.buffersReleased, "\(i == 0 ? "window" : "wallpaper \(i)") released its frame buffers while hidden")
+            }
+            let after = PondView.footprintMB()
+            self.say("after release: footprint \(f(after)) MB (was \(f(before)) MB, buffers held \(f(Double(held) / 1_048_576)) MB)")
+            self.expect(before - after >= Double(held) / 1_048_576 * 0.5,
+                        "memory drops by at least half of the released buffers (\(f(before - after)) of \(f(Double(held) / 1_048_576)) MB)")
+            // show everything again: buffers are rebuilt
+            self.pondWindow.makeKeyAndOrderFront(nil)
+            self.wallpaper.forceCovered = false
+            self.driver.kick()
+            self.after(2.0) {
+                self.measure("restored", for: self.seconds) { r in
+                    self.expect(r.window.onScreen >= 45, "window draws again after its buffers were released (\(f(r.window.onScreen))/s)")
+                    for (i, w) in r.wallpaper.enumerated() {
+                        self.expect(w.onScreen >= 45, "wallpaper \(i + 1) draws again after release (\(f(w.onScreen))/s, smooth)")
+                    }
+                    self.phaseCovered()
+                }
+            }
+        }
+    }
+
+    /// Covered by real windows (a full-screen app): everything stops and the CPU goes quiet.
+    private func phaseCovered() {
         coverEverything()
         after(2.5) {                                   // occlusion + one coverage poll
             self.wallpaper.checkCoverageNow()
@@ -86,31 +116,6 @@ final class SelfTest {
                     self.expect(w.rendered <= 1, "covered wallpaper \(i + 1) stops (\(f(w.rendered))/s)")
                 }
                 self.expect(r.cpu <= 5, "CPU stays low while covered (\(f(r.cpu)) %)")
-                // by now every view has been hidden for longer than releaseAfter
-                for (i, v) in views.enumerated() {
-                    self.expect(v.buffersReleased, "\(i == 0 ? "window" : "wallpaper \(i)") released its frame buffers while hidden")
-                }
-                let after = PondView.footprintMB()
-                self.say("after release: footprint \(f(after)) MB (was \(f(before)) MB, buffers held \(f(Double(held) / 1_048_576)) MB)")
-                self.expect(before - after >= Double(held) / 1_048_576 * 0.5,
-                            "memory drops by at least half of the released buffers (\(f(before - after)) of \(f(Double(held) / 1_048_576)) MB)")
-                self.phaseUncovered()
-            }
-        }
-    }
-
-    /// Uncovered again: released views rebuild their buffers and draw normally.
-    private func phaseUncovered() {
-        covers.forEach { $0.orderOut(nil) }
-        covers.removeAll()
-        say("uncovered every screen")
-        after(2.5) {
-            self.wallpaper.checkCoverageNow()
-            self.measure("uncovered", for: self.seconds) { r in
-                self.expect(r.window.onScreen >= 45, "window draws again after its buffers were released (\(f(r.window.onScreen))/s)")
-                for (i, w) in r.wallpaper.enumerated() {
-                    self.expect(w.onScreen >= 45, "wallpaper \(i + 1) draws again after release (\(f(w.onScreen))/s, smooth)")
-                }
                 self.finish()
             }
         }

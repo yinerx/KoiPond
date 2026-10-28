@@ -13,6 +13,8 @@ final class WallpaperController {
     private let driver = PondDriver()
     private var coverageTimer: DispatchSourceTimer?
     private var lastMove: CFTimeInterval = 0
+    /// Self-test hook: treat every screen as covered without opening covering windows.
+    var forceCovered = false { didSet { updateCoverage() } }
     private let state: AppState
 
     init(state: AppState) { self.state = state }
@@ -153,7 +155,7 @@ final class WallpaperController {
         for (w, v) in windows {
             let f = w.frame
             let screen = Coverage.Rect(x: Double(f.minX), y: primaryHeight - Double(f.maxY), w: Double(f.width), h: Double(f.height))
-            let covered = Coverage.isCovered(screen, by: rects)
+            let covered = forceCovered || Coverage.isCovered(screen, by: rects)
             if v.coveredByOtherWindows != covered { v.coveredByOtherWindows = covered; changed = true }
         }
         if changed { driver.kick() }

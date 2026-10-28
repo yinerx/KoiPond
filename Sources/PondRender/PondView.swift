@@ -162,17 +162,23 @@ public final class PondView: MTKView, MTKViewDelegate {
         resume()
     }
 
-    /// Hands the full-size frame buffers back: MetalKit drops its drawable, and shrinking the layer's
-    /// drawables to a few pixels makes it discard the full-size ones; one tiny frame cycles the pool.
+    /// Hands the full-size frame buffers back. The layer keeps a pool of 2–3 drawables and only drops a
+    /// full-size one when it would hand it out again, so: shrink the drawables to 4×4, keep two in the pool,
+    /// and present tiny frames until every full-size drawable has come round once and been discarded.
     /// The pond itself (every fish) is kept, so nothing visible changes when it comes back.
     public func releaseBuffers() {
         guard !buffersReleased else { return }
+        let pool = (layer as? CAMetalLayer)?.maximumDrawableCount ?? 3
         releaseDrawables()
+        (layer as? CAMetalLayer)?.maximumDrawableCount = 2
         drawableSize = CGSize(width: 4, height: 4)
         renderer?.releaseMemory()
-        renderer?.invalidate()
-        draw()                    // presents a 4×4 frame nobody can see
-        renderer?.releaseMemory() // and drop what that frame built
+        for _ in 0...pool {       // pool + 1 tiny frames nobody can see
+            renderer?.invalidate()
+            draw()
+        }
+        releaseDrawables()
+        renderer?.releaseMemory() // and drop what those frames built
         buffersReleased = true
     }
 
