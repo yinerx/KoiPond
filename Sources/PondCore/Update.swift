@@ -56,6 +56,7 @@ public struct GitHubRelease: Decodable, Sendable {
         public let browserDownloadURL: URL
         public let size: Int
         enum CodingKeys: String, CodingKey { case name, size, browserDownloadURL = "browser_download_url" }
+        public init(name: String, browserDownloadURL: URL, size: Int) { self.name = name; self.browserDownloadURL = browserDownloadURL; self.size = size }
     }
     public let tagName: String
     public let name: String?
@@ -67,6 +68,23 @@ public struct GitHubRelease: Decodable, Sendable {
     enum CodingKeys: String, CodingKey { case name, body, draft, prerelease, assets, tagName = "tag_name", htmlURL = "html_url" }
 
     public var version: SemVer? { SemVer(tagName) }
+
+    public init(tagName: String, name: String?, body: String?, htmlURL: URL, draft: Bool = false, prerelease: Bool = false, assets: [Asset]) {
+        self.tagName = tagName; self.name = name; self.body = body; self.htmlURL = htmlURL
+        self.draft = draft; self.prerelease = prerelease; self.assets = assets
+    }
+
+    /// A release described without the REST API (no rate limit): the tag comes from the redirect of
+    /// github.com/<repo>/releases/latest, the download URL follows GitHub's fixed pattern, and the notes
+    /// come from that tag's CHANGELOG.md.
+    public static func fromWebsite(repo: String, tag: String, notes: String?) -> GitHubRelease? {
+        guard let page = URL(string: "https://github.com/\(repo)/releases/tag/\(tag)") else { return nil }
+        let v = SemVer(tag)?.description ?? tag
+        let zip = "KoiPond-\(v).zip"
+        let assets = URL(string: "https://github.com/\(repo)/releases/download/\(tag)/\(zip)")
+            .map { [Asset(name: zip, browserDownloadURL: $0, size: 0)] } ?? []
+        return GitHubRelease(tagName: tag, name: "KoiPond \(v)", body: notes, htmlURL: page, assets: assets)
+    }
 
     /// The app download: "KoiPond-<version>.zip" (not the separate screen-saver archive).
     public var appAsset: Asset? {
@@ -92,6 +110,41 @@ public enum UpdateCheck {
         if let s = skippedVersion, let sv = SemVer(s), sv == new { return .skipped(new) }
         return .available(new)
     }
+
+    /// Website address that redirects to the newest (non-pre-release) release page — no API quota.
+    public static func latestReleasePage(repo: String) -> URL? { URL(string: "https://github.com/\(repo)/releases/latest") }
+
+    /// The tag in a release page URL: ".../releases/tag/v1.2.3" → "v1.2.3".
+    public static func tag(fromReleasePage url: URL) -> String? {
+        let parts = url.pathComponents
+        guard let i = parts.firstIndex(of: "tag"), i + 1 < parts.count, i > 0, parts[i - 1] == "releases" else { return nil }
+        let t = parts[i + 1]
+        return t.isEmpty ? nil : t
+    }
+
+    /// CHANGELOG.md of a tag, served without the API.
+    public static func changelogURL(repo: String, tag: String) -> URL? {
+        URL(string: "https://raw.githubusercontent.com/\(repo)/\(tag)/CHANGELOG.md")
+    }
+
+    /// The section of a changelog under "## v<version>" (up to the next "## v" heading).
+    public static func changelogSection(_ text: String, version: String) -> String? {
+        let want = "## v" + (SemVer(version)?.description ?? version)
+        var out: [Substring] = [], inside = false
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("## v") {
+                if inside { break }
+                inside = line.trimmingCharacters(in: .whitespaces) == want
+                continue
+            }
+            if inside { out.append(line) }
+        }
+        let body = out.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return body.isEmpty ? nil : body
+    }
+
+    /// API answers that mean "try again without the API" (rate limited, or blocked for this address).
+    public static func shouldFallBack(status: Int) -> Bool { status == 403 || status == 429 }
 
     /// GitHub REST endpoint for the newest release of `owner/repo`.
     public static func latestReleaseURL(repo: String) -> URL? {

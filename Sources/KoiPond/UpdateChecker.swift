@@ -24,10 +24,17 @@ final class UpdateChecker {
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.setValue("KoiPond/\(UpdateChecker.currentVersion)", forHTTPHeaderField: "User-Agent")
         URLSession.shared.dataTask(with: req) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            // The REST API allows 60 anonymous requests an hour per IP address; behind a shared address
+            // (company network, VPN, carrier NAT) that is gone quickly and GitHub answers 403/429.
+            // The website has no such quota, so fall back to it.
+            if err == nil, UpdateCheck.shouldFallBack(status: code) {
+                self.checkViaWebsite(userInitiated: userInitiated, apiStatus: code)
+                return
+            }
             DispatchQueue.main.async {
                 self.busy = false
                 self.state.lastUpdateCheck = Date()
-                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 if let err { if userInitiated { self.info("检查更新失败", err.localizedDescription) }; return }
                 if code == 404 { if userInitiated { self.info("还没有发布版本", "GitHub 上的 \(UpdateChecker.repo) 还没有正式发布。") }; return }
                 guard code == 200, let data, let rel = try? JSONDecoder().decode(GitHubRelease.self, from: data) else {
@@ -37,6 +44,46 @@ final class UpdateChecker {
                 self.handle(rel, userInitiated: userInitiated)
             }
         }.resume()
+    }
+
+    /// Without the API: github.com/<repo>/releases/latest redirects to the newest release page (its URL
+    /// carries the tag); the notes come from that tag's CHANGELOG.md; the download URL is GitHub's fixed pattern.
+    private func checkViaWebsite(userInitiated: Bool, apiStatus: Int) {
+        let repo = UpdateChecker.repo
+        guard let page = UpdateCheck.latestReleasePage(repo: repo) else { finishFailed(userInitiated, apiStatus); return }
+        var req = URLRequest(url: page, timeoutInterval: 20)
+        req.httpMethod = "HEAD"
+        req.setValue("KoiPond/\(UpdateChecker.currentVersion)", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: req) { _, resp, err in
+            guard err == nil, let final = resp?.url, let tag = UpdateCheck.tag(fromReleasePage: final) else {
+                self.finishFailed(userInitiated, apiStatus, detail: err?.localizedDescription)
+                return
+            }
+            let deliver: (String?) -> Void = { notes in
+                DispatchQueue.main.async {
+                    self.busy = false
+                    self.state.lastUpdateCheck = Date()
+                    guard let rel = GitHubRelease.fromWebsite(repo: repo, tag: tag, notes: notes) else { return }
+                    self.handle(rel, userInitiated: userInitiated)
+                }
+            }
+            guard let log = UpdateCheck.changelogURL(repo: repo, tag: tag) else { deliver(nil); return }
+            URLSession.shared.dataTask(with: URLRequest(url: log, timeoutInterval: 15)) { data, r, _ in
+                let ok = (r as? HTTPURLResponse)?.statusCode == 200
+                let text = ok ? data.flatMap { String(data: $0, encoding: .utf8) } : nil
+                deliver(text.flatMap { UpdateCheck.changelogSection($0, version: tag) })
+            }.resume()
+        }.resume()
+    }
+
+    private func finishFailed(_ userInitiated: Bool, _ apiStatus: Int, detail: String? = nil) {
+        DispatchQueue.main.async {
+            self.busy = false
+            guard userInitiated else { return }
+            self.info("检查更新失败",
+                      "GitHub 暂时拒绝了查询（\(apiStatus)），改用网页查询也没有成功" + (detail.map { "：\($0)" } ?? "。") +
+                      "\n\n可能是网络无法访问 github.com。也可以直接打开发布页查看：https://github.com/\(UpdateChecker.repo)/releases")
+        }
     }
 
     private func handle(_ rel: GitHubRelease, userInitiated: Bool) {

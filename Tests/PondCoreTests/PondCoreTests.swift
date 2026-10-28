@@ -269,3 +269,25 @@ final class CoverageFilterTests: XCTestCase {
         XCTAssertTrue(Coverage.isCovered(screen, by: counted + [.init(x: 0, y: 0, w: 1024, h: 768)]), "a full-screen app does hide it")
     }
 }
+
+final class UpdateFallbackTests: XCTestCase {
+    func testTagFromRedirect() {
+        XCTAssertEqual(UpdateCheck.tag(fromReleasePage: URL(string: "https://github.com/yinerx/KoiPond/releases/tag/v0.2.2")!), "v0.2.2")
+        XCTAssertNil(UpdateCheck.tag(fromReleasePage: URL(string: "https://github.com/yinerx/KoiPond/releases")!), "no release yet")
+        XCTAssertNil(UpdateCheck.tag(fromReleasePage: URL(string: "https://github.com/login")!))
+    }
+    func testChangelogSection() {
+        let log = "# 更新日志\n\n## v0.2.2\n\n- 修复 A\n- 修复 B\n\n## v0.2.1\n\n- 旧的\n"
+        XCTAssertEqual(UpdateCheck.changelogSection(log, version: "v0.2.2"), "- 修复 A\n- 修复 B")
+        XCTAssertEqual(UpdateCheck.changelogSection(log, version: "0.2.1"), "- 旧的")
+        XCTAssertNil(UpdateCheck.changelogSection(log, version: "9.9.9"))
+    }
+    func testReleaseFromWebsiteIsInstallable() {
+        let r = GitHubRelease.fromWebsite(repo: "yinerx/KoiPond", tag: "v0.3.0", notes: "notes")!
+        XCTAssertEqual(r.appAsset?.browserDownloadURL.absoluteString, "https://github.com/yinerx/KoiPond/releases/download/v0.3.0/KoiPond-0.3.0.zip")
+        XCTAssertEqual(UpdateCheck.evaluate(current: "0.2.2", release: r), .available(SemVer(0, 3, 0)))
+        XCTAssertTrue(UpdateCheck.shouldFallBack(status: 403))
+        XCTAssertTrue(UpdateCheck.shouldFallBack(status: 429))
+        XCTAssertFalse(UpdateCheck.shouldFallBack(status: 404))
+    }
+}
