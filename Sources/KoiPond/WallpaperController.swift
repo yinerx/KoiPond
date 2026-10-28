@@ -22,6 +22,20 @@ final class WallpaperController {
     /// Runs the coverage check now (the self-test does not want to wait for the next poll).
     func checkCoverageNow() { updateCoverage() }
 
+    /// Windows the coverage check counts, one line each (self-test diagnostics).
+    func coverageDebug() -> [String] {
+        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return ["window list unavailable"] }
+        let mine = Set(windows.map { $0.0.windowNumber })
+        return info.compactMap { w in
+            guard let layer = w[kCGWindowLayer as String] as? Int, layer >= 0,
+                  let num = w[kCGWindowNumber as String] as? Int, !mine.contains(num),
+                  let b = w[kCGWindowBounds as String] as? [String: CGFloat] else { return nil }
+            let owner = w[kCGWindowOwnerName as String] as? String ?? "?"
+            let alpha = w[kCGWindowAlpha as String] as? CGFloat ?? 1
+            return "  \(owner) layer \(layer) alpha \(String(format: "%.2f", Double(alpha))) at \(Int(b["X"] ?? 0)),\(Int(b["Y"] ?? 0)) \(Int(b["Width"] ?? 0))x\(Int(b["Height"] ?? 0))"
+        }
+    }
+
     func start() {
         guard windows.isEmpty else { return }
         buildWindows()

@@ -37,7 +37,9 @@ final class SelfTest {
 
         say("KoiPond self-test: \(NSScreen.screens.count) screen(s), \(Int(seconds)) s per phase, Metal: \(pond.isMetalAvailable)")
         after(1.5) {                                   // let windows settle
+            self.diagnose("before visible phase")
             self.measure("visible", for: self.seconds) { r in
+                self.diagnose("after visible phase")
                 self.expect(r.window.onScreen >= 30, "window shows fresh frames (\(f(r.window.onScreen))/s on screen, smooth profile)")
                 for (i, w) in r.wallpaper.enumerated() {
                     self.expect(w.onScreen >= 4, "wallpaper \(i + 1) shows fresh frames (\(f(w.onScreen))/s on screen, balanced profile)")
@@ -57,6 +59,16 @@ final class SelfTest {
                 }
             }
         }
+    }
+
+    private func diagnose(_ when: String) {
+        wallpaper.checkCoverageNow()
+        say("--- \(when)")
+        say("window:      " + pond.visibilityDebug)
+        for (i, v) in wallpaper.views.enumerated() { say("wallpaper \(i + 1): " + v.visibilityDebug) }
+        say("screens: " + NSScreen.screens.map { "\(Int($0.frame.minX)),\(Int($0.frame.minY)) \(Int($0.frame.width))x\(Int($0.frame.height))" }.joined(separator: "; "))
+        say("windows counted for coverage:")
+        wallpaper.coverageDebug().forEach(say)
     }
 
     struct Rates { var rendered = 0.0, drawn = 0.0, onScreen = 0.0 }

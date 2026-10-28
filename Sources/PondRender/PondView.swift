@@ -31,6 +31,13 @@ public final class PondView: MTKView, MTKViewDelegate {
     public private(set) var framesRendered = 0
     public private(set) var framesDrawn = 0
     public var framesOnScreen: Int { renderer?.screenUpdates ?? 0 }
+    /// Why the view is or isn't rendered (self-test diagnostics).
+    public var visibilityDebug: String {
+        guard let w = window else { return "no window" }
+        return "visible=\(w.isVisible) occlusion=\(w.occlusionState.rawValue) (visible bit \(w.occlusionState.contains(.visible))) " +
+            "trusted=\(occlusionTrusted) covered=\(coveredByOtherWindows) level=\(w.level.rawValue) → render=\(isVisibleForRendering)" +
+            " presented callbacks=\(renderer?.presentedCallbacks ?? 0)"
+    }
 
     public init(frame: NSRect, config: PondConfig, interactive: Bool = true) {
         self.interactive = interactive
