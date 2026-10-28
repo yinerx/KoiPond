@@ -41,7 +41,7 @@ final class SelfTest {
             self.diagnose("before visible phase")
             self.measure("visible", for: self.seconds) { r in
                 self.diagnose("after visible phase")
-                self.expect(r.window.onScreen >= 30, "window presents fresh frames (\(f(r.window.onScreen))/s, smooth profile)")
+                self.expect(r.window.onScreen >= 45, "window presents fresh frames (\(f(r.window.onScreen))/s, smooth profile)")
                 for (i, w) in r.wallpaper.enumerated() {
                     self.expect(w.onScreen >= 4, "wallpaper \(i + 1) presents fresh frames (\(f(w.onScreen))/s, balanced profile)")
                     self.expect(w.rendered <= 32, "wallpaper \(i + 1) stays near its profile rate (\(f(w.rendered))/s)")

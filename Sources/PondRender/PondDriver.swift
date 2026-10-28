@@ -6,15 +6,20 @@ import PondCore
 /// tick at the fastest rate any of them asks for (calm ponds tick slowly). When nothing is visible, or the
 /// Mac is asleep, locked, switched to another user or showing a screen saver, the timer stops completely;
 /// window and system notifications start it again.
-public final class PondDriver {
+public final class PondDriver: NSObject {
     private var views: [PondView] = []
     private var timer: DispatchSourceTimer?
+    /// At display-like rates the timer gets coalesced and drops frames; a display link follows the screen's
+    /// refresh instead. Low rates keep the timer: coalescing is exactly what saves power there.
+    private var link: CADisplayLink?
+    private var linkFPS: Double = 0
     private var interval: Double = 0
     private var observers: [NSObjectProtocol] = []
     /// When each view last rendered: a calm screen keeps its own slow rate while another screen is busy.
     private var lastRender: [ObjectIdentifier: CFTimeInterval] = [:]
 
-    public init() {
+    public override init() {
+        super.init()
         let nc = NotificationCenter.default
         observers.append(nc.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] n in
             guard let self, let w = n.object as? NSWindow, self.views.contains(where: { $0.window === w }) else { return }
@@ -30,6 +35,7 @@ public final class PondDriver {
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         timer?.cancel()
+        link?.invalidate()
     }
 
     public func add(_ v: PondView) {
@@ -42,7 +48,8 @@ public final class PondDriver {
     /// Input happened: make sure the next frame comes at the fast rate. Never renders by itself, so a
     /// stream of mouse events cannot push the frame rate past the profile.
     public func wake() {
-        guard timer != nil else { kick(); return }
+        guard timer != nil || link != nil else { kick(); return }
+        if link != nil { return }                       // already at the display's rate
         let fast = views.map { $0.effectiveProfile.activeFPS }.max() ?? 30
         if interval > 1 / fast + 0.0005 { schedule(1 / fast) }
     }
@@ -73,8 +80,36 @@ public final class PondDriver {
             fps = max(fps, want)
         }
         guard fps > 0 else { stop(); return }     // nothing on screen: wait for a notification
-        schedule(1 / fps)
+        if fps >= 50, let v = views.first(where: { $0.isVisibleForRendering }) {
+            useDisplayLink(on: v, fps: fps)
+        } else {
+            dropDisplayLink()
+            schedule(1 / fps)
+        }
     }
+
+    private func useDisplayLink(on view: PondView, fps: Double) {
+        if timer != nil { timer?.cancel(); timer = nil; interval = 0 }
+        if link == nil {
+            let l = view.displayLink(target: self, selector: #selector(linkFired(_:)))
+            l.add(to: .main, forMode: .common)
+            link = l
+            linkFPS = 0
+        }
+        if linkFPS != fps {
+            link?.preferredFrameRateRange = CAFrameRateRange(minimum: Float(min(30, fps)), maximum: Float(fps), preferred: Float(fps))
+            linkFPS = fps
+        }
+        interval = 1 / fps
+    }
+
+    private func dropDisplayLink() {
+        link?.invalidate()
+        link = nil
+        linkFPS = 0
+    }
+
+    @objc private func linkFired(_ l: CADisplayLink) { tick() }
 
     private func schedule(_ iv: Double) {
         if timer == nil {
@@ -93,6 +128,7 @@ public final class PondDriver {
     private func stop() {
         timer?.cancel()
         timer = nil
+        dropDisplayLink()
         interval = 0
     }
 }
