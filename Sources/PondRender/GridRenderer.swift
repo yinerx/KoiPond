@@ -80,6 +80,18 @@ final class GridRenderer {
     /// Forget the last frame so the next one is drawn even if unchanged (after a resize, a resume…).
     func invalidate() { lastKey = nil }
 
+    /// Drops everything rebuilt on demand: instance buffers, the glyph atlas, cell lists.
+    func releaseMemory() {
+        inFlight.wait(); inFlight.wait()   // let frames in flight finish with the buffers
+        buffers = []
+        inFlight.signal(); inFlight.signal()
+        atlas = nil
+        atlasKey = (0, 0)
+        staging = []
+        lastFrame = []
+        lastKey = nil
+    }
+
     /// Returns true if a frame was encoded and presented, false if it was skipped (unchanged) or impossible.
     @discardableResult
     func draw(grid: CellGrid, settings: GlobalSettings, background: RGBA, in view: MTKView) -> Bool {

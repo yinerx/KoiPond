@@ -70,7 +70,9 @@ public final class PondDriver: NSObject {
         guard !SystemActivity.shared.isSuspended else { stop(); return }
         var fps = 0.0
         let now = CACurrentMediaTime()
-        for v in views where v.isVisibleForRendering {
+        for v in views {
+            guard v.isVisibleForRendering else { v.noteHidden(); continue }
+            v.noteVisible()
             let want = v.desiredFPS, id = ObjectIdentifier(v)
             // due when three quarters of its frame interval have passed: display-link ticks jitter, and a
             // tighter cut skipped every early tick (~10 frames/s lost at 60 Hz); on 120 Hz it still holds 60

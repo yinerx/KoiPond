@@ -68,22 +68,81 @@ public struct Spine: Sendable {
         return best
     }
 
-    /// Calls `body` for every grid cell whose centre lies within `width(s) + pad` of the spine.
+    /// Calls `body` for every grid cell whose centre lies within `width(s) + pad` of the spine, in row-major order.
     /// `v` is the lateral position relative to the half-width (−1…1 inside the body, beyond for the pad).
+    /// `maxWidth` must be at least the largest `width(s)`.
+    ///
+    /// Each segment only visits the cells near itself and keeps the nearest segment per cell; a cell that is
+    /// near no segment is never looked at. That finds the same nearest point as testing every cell of the
+    /// bounding box against every segment (ties go to the lower segment, as before) at a fraction of the work:
+    /// a long, thin, slanted body fills little of its bounding box.
     public func rasterize(_ g: CellGrid, pad: Double, maxWidth: Double, width: (Double) -> Double,
                           _ body: (_ col: Int, _ row: Int, _ s: Double, _ v: Double, _ inside: Bool) -> Void) {
+        let n = nodes.count - 1
+        guard n >= 1 else { return }
+        // farthest a passing cell centre can be from the spine
+        let reach = max(0.5, maxWidth) + pad + 1e-9, reach2 = reach * reach
         var lo = nodes[0], hi = nodes[0]
         for p in nodes { lo = Vec2(min(lo.x, p.x), min(lo.y, p.y)); hi = Vec2(max(hi.x, p.x), max(hi.y, p.y)) }
-        let m = maxWidth + pad + g.cellSize
-        let (c0, r0) = g.cellOf(lo - Vec2(m, m)), (c1, r1) = g.cellOf(hi + Vec2(m, m))
+        let (c0, r0) = g.cellOf(lo - Vec2(reach, reach)), (c1, r1) = g.cellOf(hi + Vec2(reach, reach))
         guard let span = g.clip(cols: c0, c1, rows: r0, r1) else { return }
-        for r in span.rows {
-            for c in span.cols {
-                let pr = project(g.center(c, r))
-                let w = max(0.5, width(pr.s))
-                let d = abs(pr.lateral)
-                if d <= w + pad { body(c, r, pr.s, pr.lateral / w, d <= w) }
+        let colLo = span.cols.lowerBound, rowLo = span.rows.lowerBound, cols = span.cols.count
+        let sc = RasterScratch.shared
+        sc.prepare(cols * span.rows.count)
+
+        sc.d2.withUnsafeMutableBufferPointer { d2 in
+            sc.s.withUnsafeMutableBufferPointer { sv in
+                sc.lat.withUnsafeMutableBufferPointer { lat in
+                    for i in 0..<n {
+                        let a = nodes[i], b = nodes[i + 1], ab = b - a, len2 = max(1e-9, ab.lengthSquared)
+                        let fwd = a - b
+                        let (sc0, sr0) = g.cellOf(Vec2(min(a.x, b.x) - reach, min(a.y, b.y) - reach))
+                        let (sc1, sr1) = g.cellOf(Vec2(max(a.x, b.x) + reach, max(a.y, b.y) + reach))
+                        let ca = max(sc0, span.cols.lowerBound), cb = min(sc1, span.cols.upperBound)
+                        let ra = max(sr0, span.rows.lowerBound), rb = min(sr1, span.rows.upperBound)
+                        guard ca <= cb, ra <= rb else { continue }
+                        for r in ra...rb {
+                            let rowBase = (r - rowLo) * cols - colLo
+                            for c in ca...cb {
+                                let p = g.center(c, r)
+                                let t = clamp((p - a).dot(ab) / len2, 0, 1)
+                                let q = a + ab * t
+                                let dd = (p - q).lengthSquared
+                                let k = rowBase + c
+                                guard dd <= reach2, dd < d2[k] else { continue }
+                                d2[k] = dd
+                                sv[k] = (Double(i) + t) / Double(n)
+                                lat[k] = (fwd.cross(p - q) >= 0 ? 1.0 : -1.0) * dd.squareRoot()
+                            }
+                        }
+                    }
+                }
             }
+        }
+        for r in span.rows {
+            let rowBase = (r - rowLo) * cols - colLo
+            for c in span.cols {
+                let k = rowBase + c
+                guard sc.d2[k] < .infinity else { continue }
+                let s = sc.s[k], l = sc.lat[k]
+                let w = max(0.5, width(s)), d = abs(l)
+                if d <= w + pad { body(c, r, s, l / w, d <= w) }
+            }
+        }
+    }
+}
+
+/// Reused scratch buffers for `Spine.rasterize` (drawing happens on one thread).
+final class RasterScratch {
+    static let shared = RasterScratch()
+    var d2: [Double] = [], s: [Double] = [], lat: [Double] = []
+    func prepare(_ count: Int) {
+        if d2.count < count {
+            d2 = Array(repeating: .infinity, count: count)
+            s = Array(repeating: 0, count: count)
+            lat = Array(repeating: 0, count: count)
+        } else {
+            d2.withUnsafeMutableBufferPointer { p in for i in 0..<count { p[i] = .infinity } }
         }
     }
 }

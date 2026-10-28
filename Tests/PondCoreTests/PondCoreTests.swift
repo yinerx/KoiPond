@@ -291,3 +291,49 @@ final class UpdateFallbackTests: XCTestCase {
         XCTAssertFalse(UpdateCheck.shouldFallBack(status: 404))
     }
 }
+
+final class RasterizeTests: XCTestCase {
+    struct Hit: Equatable { var c: Int, r: Int, s: Double, v: Double, inside: Bool }
+
+    /// The previous algorithm: every cell of the bounding box against every segment.
+    func reference(_ sp: Spine, _ g: CellGrid, pad: Double, maxWidth: Double, width: (Double) -> Double) -> [Hit] {
+        var lo = sp.nodes[0], hi = sp.nodes[0]
+        for p in sp.nodes { lo = Vec2(min(lo.x, p.x), min(lo.y, p.y)); hi = Vec2(max(hi.x, p.x), max(hi.y, p.y)) }
+        let m = maxWidth + pad + g.cellSize
+        let (c0, r0) = g.cellOf(lo - Vec2(m, m)), (c1, r1) = g.cellOf(hi + Vec2(m, m))
+        guard let span = g.clip(cols: c0, c1, rows: r0, r1) else { return [] }
+        var out: [Hit] = []
+        for r in span.rows { for c in span.cols {
+            let pr = sp.project(g.center(c, r))
+            let w = max(0.5, width(pr.s)), d = abs(pr.lateral)
+            if d <= w + pad { out.append(Hit(c: c, r: r, s: pr.s, v: pr.lateral / w, inside: d <= w)) }
+        } }
+        return out
+    }
+
+    func testSameCellsAsTheOldAlgorithm() {
+        var rng = PondRandom(seed: 42)
+        let g = CellGrid(width: 900, height: 600, cellSize: 12)
+        var checked = 0
+        for trial in 0..<200 {
+            // random swimmers anywhere, including half off screen, bent by following a wiggly path
+            let L = rng.range(40, 600), maxW = L * rng.range(0.06, 0.16)
+            var sp = Spine(head: Vec2(rng.range(-100, 1000), rng.range(-100, 700)), heading: rng.angle(),
+                           count: [6, 16, 22][trial % 3], length: L)
+            var h = sp.head, ang = rng.angle()
+            for _ in 0..<80 { ang += rng.range(-0.4, 0.4); h += Vec2.polar(ang, 6); sp.follow(h) }
+            let width: (Double) -> Double = { s in maxW * (s < 0.2 ? 0.5 + 2.5 * s : 1.05 - s) }
+            let pad = trial % 2 == 0 ? 10.8 : 0
+            var got: [Hit] = []
+            sp.rasterize(g, pad: pad, maxWidth: maxW, width: width) { c, r, s, v, inside in got.append(Hit(c: c, r: r, s: s, v: v, inside: inside)) }
+            let want = reference(sp, g, pad: pad, maxWidth: maxW, width: width)
+            XCTAssertEqual(got.count, want.count, "trial \(trial)")
+            for (a, b) in zip(got, want) {
+                XCTAssertEqual(a.c, b.c); XCTAssertEqual(a.r, b.r); XCTAssertEqual(a.inside, b.inside)
+                XCTAssertEqual(a.s, b.s, accuracy: 1e-9); XCTAssertEqual(a.v, b.v, accuracy: 1e-9)
+            }
+            checked += want.count
+        }
+        XCTAssertGreaterThan(checked, 10_000, "the comparison must cover plenty of cells")
+    }
+}

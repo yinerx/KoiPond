@@ -26,6 +26,14 @@ public final class PondView: MTKView, MTKViewDelegate {
     public var profile: PowerProfile = .smooth { didSet { updateDrawableSize() } }
     /// Set by the owner when it knows the view is hidden (the wallpaper checks screen coverage itself).
     public var coveredByOtherWindows = false
+    /// Wallpaper views: the smooth profile renders at 75 % resolution with two buffers instead of
+    /// native resolution with three (the display link keeps 60 fps with two).
+    public var memoryLean = false { didSet { updateDrawableSize() } }
+    /// Seconds a view must stay hidden before its frame buffers are handed back to the system.
+    public var releaseAfter: Double = 3
+    /// True while the full-size frame buffers are released (hidden for a while).
+    public private(set) var buffersReleased = false
+    private var pendingRelease: DispatchWorkItem?
     private var lastPresented = false
     /// Counters for the self-test: frames simulated, frames drawn (not skipped), frames confirmed on screen.
     public private(set) var framesRendered = 0
@@ -130,18 +138,62 @@ public final class PondView: MTKView, MTKViewDelegate {
     /// After a pause: don't fast-forward the pond, and redraw even if the picture did not change.
     public func resume() { lastTime = 0; renderer?.invalidate() }
 
+    // MARK: releasing memory while hidden
+
+    /// The driver found this view hidden: after `releaseAfter` seconds still hidden, give the buffers back.
+    public func noteHidden() {
+        guard !buffersReleased, pendingRelease == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingRelease = nil
+            if !self.isVisibleForRendering { self.releaseBuffers() }
+        }
+        pendingRelease = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + releaseAfter, execute: work)
+    }
+
+    /// The driver is about to render this view: cancel a pending release, or rebuild what was released.
+    public func noteVisible() {
+        pendingRelease?.cancel()
+        pendingRelease = nil
+        guard buffersReleased else { return }
+        buffersReleased = false
+        updateDrawableSize()
+        resume()
+    }
+
+    /// Hands the full-size frame buffers back: MetalKit drops its drawable, and shrinking the layer's
+    /// drawables to a few pixels makes it discard the full-size ones; one tiny frame cycles the pool.
+    /// The pond itself (every fish) is kept, so nothing visible changes when it comes back.
+    public func releaseBuffers() {
+        guard !buffersReleased else { return }
+        releaseDrawables()
+        drawableSize = CGSize(width: 4, height: 4)
+        renderer?.releaseMemory()
+        renderer?.invalidate()
+        draw()                    // presents a 4×4 frame nobody can see
+        renderer?.releaseMemory() // and drop what that frame built
+        buffersReleased = true
+    }
+
     // MARK: resolution
 
-    /// Drawable pixels = points × screen scale × the profile's resolution scale.
+    /// Frame buffers for this view: three for a 60 fps window, two otherwise.
+    public var bufferCount: Int { (effectiveProfile.activeFPS >= 50 && !memoryLean) ? 3 : 2 }
+    /// Render resolution relative to the screen's native pixels.
+    public var resolutionScale: Double {
+        let p = effectiveProfile
+        return (memoryLean && p == .smooth) ? 0.75 : p.resolutionScale
+    }
+    /// Bytes the frame buffers take right now (diagnostics).
+    public var bufferBytes: Int { Int(drawableSize.width * drawableSize.height) * 4 * ((layer as? CAMetalLayer)?.maximumDrawableCount ?? 2) }
+
+    /// Drawable pixels = points × screen scale × resolution scale.
     private func updateDrawableSize() {
-        // 60 fps from a timer that is not locked to the display needs a third buffer, or frames wait for one;
-        // the slow profiles keep two (less memory, and they never get close to the refresh rate)
-        if let metal = layer as? CAMetalLayer {
-            let want = effectiveProfile.activeFPS >= 50 ? 3 : 2
-            if metal.maximumDrawableCount != want { metal.maximumDrawableCount = want }
-        }
+        guard !buffersReleased else { return }
+        if let metal = layer as? CAMetalLayer, metal.maximumDrawableCount != bufferCount { metal.maximumDrawableCount = bufferCount }
         let backing = Double(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
-        let s = max(0.25, backing * effectiveProfile.resolutionScale)
+        let s = max(0.25, backing * resolutionScale)
         let size = CGSize(width: max(1, (Double(bounds.width) * s).rounded()), height: max(1, (Double(bounds.height) * s).rounded()))
         if drawableSize != size { drawableSize = size; renderer?.invalidate() }
     }

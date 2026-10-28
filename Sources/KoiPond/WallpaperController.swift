@@ -86,6 +86,7 @@ final class WallpaperController {
             w.backgroundColor = NSColor(srgbRed: CGFloat(bg.r) / 255, green: CGFloat(bg.g) / 255, blue: CGFloat(bg.b) / 255, alpha: 1)
             let v = PondView(frame: NSRect(origin: .zero, size: screen.frame.size), config: state.config, interactive: false)
             v.autoresizingMask = [.width, .height]
+            v.memoryLean = true
             v.profile = state.wallpaperProfile
             w.contentView = v
             w.setFrame(screen.frame, display: false)
