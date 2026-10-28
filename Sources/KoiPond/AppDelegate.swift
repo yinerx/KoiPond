@@ -16,7 +16,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var statusItem: NSStatusItem?
     private var bag: Set<AnyCancellable> = []
 
+    private var selfTest: SelfTest?
+
     func applicationDidFinishLaunching(_ note: Notification) {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--selftest") {
+            let secs = args.count > i + 1 ? Double(args[i + 1]) ?? 6 : 6
+            selfTest = SelfTest(state: state, seconds: secs)
+            selfTest?.run()
+            return
+        }
         buildMainMenu()
         buildStatusItem()
 

@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import PondCore
 import PondRender
 
@@ -10,16 +11,21 @@ final class WallpaperController {
     private var moveMonitor: Any?
     private var screenObserver: NSObjectProtocol?
     private let driver = PondDriver()
+    private var coverageTimer: DispatchSourceTimer?
+    private var lastMove: CFTimeInterval = 0
     private let state: AppState
 
     init(state: AppState) { self.state = state }
 
     var isActive: Bool { !windows.isEmpty }
     var views: [PondView] { windows.map { $0.1 } }
+    /// Runs the coverage check now (the self-test does not want to wait for the next poll).
+    func checkCoverageNow() { updateCoverage() }
 
     func start() {
         guard windows.isEmpty else { return }
         buildWindows()
+        startCoveragePoll()
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in self?.handleClick() }
         moveMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in self?.handleMove() }
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
@@ -30,6 +36,8 @@ final class WallpaperController {
 
     func stop() {
         driver.removeAll()
+        coverageTimer?.cancel()
+        coverageTimer = nil
         for (w, _) in windows { w.orderOut(nil) }
         windows.removeAll()
         if let m = clickMonitor { NSEvent.removeMonitor(m) }
@@ -89,9 +97,50 @@ final class WallpaperController {
     }
 
     private func handleMove() {
+        // the global monitor can fire hundreds of times a second; the pond needs far fewer
+        let now = CACurrentMediaTime()
+        guard now - lastMove > 1.0 / 30 else { return }
+        lastMove = now
         let p = NSEvent.mouseLocation
-        guard let (v, local) = target(at: p) else { return }
+        guard let (v, local) = target(at: p), v.isVisibleForRendering else { return }
         v.pointer(atViewPoint: local)
+    }
+
+    // MARK: coverage
+
+    /// Once a second: is each screen's wallpaper hidden behind other windows (a full-screen app, zoomed
+    /// windows)? Desktop-level windows don't get dependable occlusion reports, so we look ourselves.
+    /// A covered screen's pond stops completely; this poll is what starts it again.
+    private func startCoveragePoll() {
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(250))
+        t.setEventHandler { [weak self] in self?.updateCoverage() }
+        t.resume()
+        coverageTimer = t
+    }
+
+    private func updateCoverage() {
+        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return }
+        // every window but the wallpaper itself (KoiPond's own pond window can hide the wallpaper too)
+        let mine = Set(windows.map { $0.0.windowNumber })
+        var rects: [Coverage.Rect] = []
+        for w in info {
+            guard let layer = w[kCGWindowLayer as String] as? Int, layer >= 0,
+                  let num = w[kCGWindowNumber as String] as? Int, !mine.contains(num),
+                  let b = w[kCGWindowBounds as String] as? [String: CGFloat],
+                  (w[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0.5 else { continue }
+            rects.append(Coverage.Rect(x: Double(b["X"] ?? 0), y: Double(b["Y"] ?? 0), w: Double(b["Width"] ?? 0), h: Double(b["Height"] ?? 0)))
+        }
+        // CG bounds: top-left origin on the primary screen; AppKit frames: bottom-left
+        let primaryHeight = Double(NSScreen.screens.first?.frame.height ?? 0)
+        var changed = false
+        for (w, v) in windows {
+            let f = w.frame
+            let screen = Coverage.Rect(x: Double(f.minX), y: primaryHeight - Double(f.maxY), w: Double(f.width), h: Double(f.height))
+            let covered = Coverage.isCovered(screen, by: rects)
+            if v.coveredByOtherWindows != covered { v.coveredByOtherWindows = covered; changed = true }
+        }
+        if changed { driver.kick() }
     }
 
     /// True if no ordinary window, panel, the Dock or the menu bar sits under the point.

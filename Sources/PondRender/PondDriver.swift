@@ -34,12 +34,20 @@ public final class PondDriver {
 
     public func add(_ v: PondView) {
         views.append(v)
-        v.onActivity = { [weak self] in self?.kick() }
+        v.onActivity = { [weak self] in self?.wake() }
         kick()
     }
     public func removeAll() { views.removeAll(); lastRender.removeAll(); stop() }
 
-    /// Render now and re-plan (new view, input, a window uncovered, the Mac woke up…).
+    /// Input happened: make sure the next frame comes at the fast rate. Never renders by itself, so a
+    /// stream of mouse events cannot push the frame rate past the profile.
+    public func wake() {
+        guard timer != nil else { kick(); return }
+        let fast = views.map { $0.effectiveProfile.activeFPS }.max() ?? 30
+        if interval > 1 / fast + 0.0005 { schedule(1 / fast) }
+    }
+
+    /// Render now and re-plan (new view, a window uncovered, the Mac woke up…).
     public func kick() {
         guard !views.isEmpty else { stop(); return }
         if interval == 0 { views.forEach { $0.resume() } }   // coming back from a stop

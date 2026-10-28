@@ -39,6 +39,15 @@ final class GridRenderer {
     private(set) var lastCellCount = 0
     /// Frames skipped because nothing changed (for the performance overlay).
     private(set) var skippedFrames = 0
+    /// Frames the system confirms reached the screen (presentedTime > 0). The honest frame counter.
+    private(set) var screenUpdates = 0
+    private var screenUpdatesTaken = 0
+    /// On-screen frames per second since the last call.
+    func takeScreenUpdateRate(_ span: Double) -> Double {
+        let n = screenUpdates - screenUpdatesTaken
+        screenUpdatesTaken = screenUpdates
+        return Double(n) / max(0.001, span)
+    }
 
     init?(device: MTLDevice, pixelFormat: MTLPixelFormat) {
         self.device = device
@@ -131,6 +140,10 @@ final class GridRenderer {
         enc.endEncoding()
         let sem = inFlight
         cmd.addCompletedHandler { _ in sem.signal() }
+        drawable.addPresentedHandler { [weak self] d in
+            guard d.presentedTime > 0 else { return }
+            DispatchQueue.main.async { self?.screenUpdates += 1 }
+        }
         cmd.present(drawable)
         cmd.commit()
 

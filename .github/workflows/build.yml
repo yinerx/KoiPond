@@ -39,6 +39,8 @@ jobs:
           echo "BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
       - name: Package
         run: scripts/bundle.sh "$VERSION"
+      - name: Self-test on this Mac (frames reach the screen; covered ponds stop)
+        run: perl -e 'alarm 90; exec @ARGV' dist/KoiPond.app/Contents/MacOS/KoiPond --selftest 6
       - uses: actions/upload-artifact@v4
         with:
           name: KoiPond-${{ env.VERSION }}

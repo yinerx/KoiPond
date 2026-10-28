@@ -24,6 +24,13 @@ public final class PondView: MTKView, MTKViewDelegate {
     public var autoFeedInterval: Double = 0
     /// Frame rates and render resolution. Low Power Mode or a hot Mac switch to `.saver` on their own.
     public var profile: PowerProfile = .smooth { didSet { updateDrawableSize() } }
+    /// Set by the owner when it knows the view is hidden (the wallpaper checks screen coverage itself).
+    public var coveredByOtherWindows = false
+    private var lastPresented = false
+    /// Counters for the self-test: frames simulated, frames drawn (not skipped), frames confirmed on screen.
+    public private(set) var framesRendered = 0
+    public private(set) var framesDrawn = 0
+    public var framesOnScreen: Int { renderer?.screenUpdates ?? 0 }
 
     public init(frame: NSRect, config: PondConfig, interactive: Bool = true) {
         self.interactive = interactive
@@ -72,7 +79,7 @@ public final class PondView: MTKView, MTKViewDelegate {
     /// Until a window has reported itself visible once, occlusion is not trusted (desktop-level windows
     /// may never report it), so such a view keeps rendering rather than freezing.
     public var isVisibleForRendering: Bool {
-        guard let w = window, w.isVisible, !w.isMiniaturized, !isHiddenOrHasHiddenAncestor else { return false }
+        guard !coveredByOtherWindows, let w = window, w.isVisible, !w.isMiniaturized, !isHiddenOrHasHiddenAncestor else { return false }
         if w.occlusionState.contains(.visible) { occlusionTrusted = true; return true }
         return !occlusionTrusted
     }
@@ -82,7 +89,13 @@ public final class PondView: MTKView, MTKViewDelegate {
     public func renderFrame() -> Bool {
         let t0 = CACurrentMediaTime()
         updateDrawableSize()
-        let presented = step(now: t0)
+        // Must go through MTKView.draw(): it hands out a fresh drawable for this frame and takes it back
+        // afterwards. Rendering outside it keeps re-presenting one drawable, and the screen stops updating.
+        lastPresented = false
+        draw()
+        let presented = lastPresented
+        framesRendered += 1
+        if presented { framesDrawn += 1 }
         stats.add(cpu: CACurrentMediaTime() - t0, presented: presented, at: t0)
         if world.config.global.showFPS, stats.due(at: t0) { world.hudLines = stats.lines(view: self) }
         return presented
@@ -122,7 +135,7 @@ public final class PondView: MTKView, MTKViewDelegate {
     // MARK: MTKViewDelegate (only reached through renderFrame → step)
 
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
-    public func draw(in view: MTKView) { _ = step(now: CACurrentMediaTime()) }
+    public func draw(in view: MTKView) { lastPresented = step(now: CACurrentMediaTime()) }
 
     // MARK: input
 
@@ -177,7 +190,8 @@ public final class PondView: MTKView, MTKViewDelegate {
             let ms = frames > 0 ? cpu / Double(frames) * 1000 : 0
             let p = view.effectiveProfile
             let out = [
-                String(format: "%.0f fps (drawn %.0f)  target %.0f  %@", fps, drawn, view.desiredFPS, p.rawValue),
+                String(format: "%.0f fps (drawn %.0f, on screen %.0f)  target %.0f  %@", fps, drawn,
+                       view.renderer?.takeScreenUpdateRate(span) ?? 0, view.desiredFPS, p.rawValue),
                 String(format: "%.2f ms/frame  %d cells  %.0fx%.0f px", ms, view.renderer?.lastCellCount ?? 0,
                        Double(view.drawableSize.width), Double(view.drawableSize.height)),
                 String(format: "memory %.0f MB", PondView.footprintMB()),

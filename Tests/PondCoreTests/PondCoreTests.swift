@@ -228,3 +228,23 @@ final class PowerTests: XCTestCase {
         XCTAssertFalse(w.wantsFastFrames(hold: hold))
     }
 }
+
+final class CoverageTests: XCTestCase {
+    typealias R = Coverage.Rect
+    let screen = R(x: 0, y: 0, w: 1920, h: 1080)
+    func testFullscreenWindowCovers() {
+        XCTAssertTrue(Coverage.isCovered(screen, by: [R(x: 0, y: 0, w: 1920, h: 1080)]))
+    }
+    func testMenuBarPlusZoomedWindowCovers() {
+        XCTAssertTrue(Coverage.isCovered(screen, by: [R(x: 0, y: 0, w: 1920, h: 25), R(x: 0, y: 25, w: 1920, h: 1055)]))
+    }
+    func testAStripOfDesktopShowing() {
+        XCTAssertFalse(Coverage.isCovered(screen, by: [R(x: 0, y: 0, w: 1700, h: 1080)]))
+        XCTAssertFalse(Coverage.isCovered(screen, by: []))
+    }
+    func testWindowsOnAnotherScreenDoNotCount() {
+        let second = R(x: 1920, y: 0, w: 1440, h: 900)
+        XCTAssertFalse(Coverage.isCovered(second, by: [R(x: 0, y: 0, w: 1920, h: 1080)]))
+        XCTAssertTrue(Coverage.isCovered(second, by: [R(x: 1900, y: -20, w: 1500, h: 1000)]))
+    }
+}
