@@ -55,7 +55,11 @@ public final class PondDriver {
         tick()
     }
 
+    /// Timer ticks so far (self-test diagnostics).
+    public private(set) var ticks = 0
+
     private func tick() {
+        ticks += 1
         guard !SystemActivity.shared.isSuspended else { stop(); return }
         var fps = 0.0
         let now = CACurrentMediaTime()

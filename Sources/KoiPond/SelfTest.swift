@@ -11,6 +11,7 @@ final class SelfTest {
     private let state: AppState
     private let seconds: Double
     private let driver = PondDriver()
+    var windowDriver: PondDriver { driver }
     private var pondWindow: NSWindow!
     private var pond: PondView!
     private var wallpaper: WallpaperController!
@@ -80,6 +81,7 @@ final class SelfTest {
     private func measure(_ phase: String, for s: Double, then: @escaping (Result) -> Void) {
         let views = [pond!] + wallpaper.views
         let start = views.map(counters), cpu0 = SelfTest.cpuSeconds(), t0 = CACurrentMediaTime()
+        let ticks0 = driver.ticks, wall0 = pond.renderWallSeconds, frames0 = pond.framesRendered
         after(s) {
             let span = CACurrentMediaTime() - t0
             let end = views.map(self.counters)
@@ -88,6 +90,9 @@ final class SelfTest {
             }
             let r = Result(window: rates[0], wallpaper: Array(rates.dropFirst()), cpu: (SelfTest.cpuSeconds() - cpu0) / span * 100)
             self.say("[\(phase)] CPU \(f(r.cpu)) %, memory \(f(PondView.footprintMB())) MB")
+            let n = self.pond.framesRendered - frames0
+            self.say("[\(phase)] window driver ticks \(f(Double(self.driver.ticks - ticks0) / span))/s, " +
+                     "wall time per frame \(f(n > 0 ? (self.pond.renderWallSeconds - wall0) / Double(n) * 1000 : 0)) ms")
             for (i, x) in rates.enumerated() {
                 self.say("[\(phase)] \(i == 0 ? "window     " : "wallpaper \(i)") rendered \(f(x.rendered))/s, drawn \(f(x.drawn))/s, presented \(f(x.onScreen))/s")
             }

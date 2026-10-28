@@ -32,6 +32,8 @@ public final class PondView: MTKView, MTKViewDelegate {
     public private(set) var framesDrawn = 0
     public var framesOnScreen: Int { renderer?.screenUpdates ?? 0 }
     public var framesPresented: Int { renderer?.presentedCallbacks ?? 0 }
+    /// Wall-clock seconds spent inside renderFrame, waits included (self-test diagnostics).
+    public private(set) var renderWallSeconds = 0.0
     /// Why the view is or isn't rendered (self-test diagnostics).
     public var visibilityDebug: String {
         guard let w = window else { return "no window" }
@@ -104,6 +106,7 @@ public final class PondView: MTKView, MTKViewDelegate {
         let presented = lastPresented
         framesRendered += 1
         if presented { framesDrawn += 1 }
+        renderWallSeconds += CACurrentMediaTime() - t0
         stats.add(cpu: CACurrentMediaTime() - t0, presented: presented, at: t0)
         if world.config.global.showFPS, stats.due(at: t0) { world.hudLines = stats.lines(view: self) }
         return presented
