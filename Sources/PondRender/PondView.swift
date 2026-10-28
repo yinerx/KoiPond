@@ -52,7 +52,7 @@ public final class PondView: MTKView, MTKViewDelegate {
         enableSetNeedsDisplay = false
         autoResizeDrawable = false
         if let metal = layer as? CAMetalLayer {
-            metal.maximumDrawableCount = 2          // two full-screen buffers instead of three
+            metal.maximumDrawableCount = 2          // raised to 3 for the smooth profile (see updateDrawableSize)
             metal.magnificationFilter = .linear     // reduced-resolution profiles are scaled up smoothly
             metal.isOpaque = true
         }
@@ -131,6 +131,12 @@ public final class PondView: MTKView, MTKViewDelegate {
 
     /// Drawable pixels = points × screen scale × the profile's resolution scale.
     private func updateDrawableSize() {
+        // 60 fps from a timer that is not locked to the display needs a third buffer, or frames wait for one;
+        // the slow profiles keep two (less memory, and they never get close to the refresh rate)
+        if let metal = layer as? CAMetalLayer {
+            let want = effectiveProfile.activeFPS >= 50 ? 3 : 2
+            if metal.maximumDrawableCount != want { metal.maximumDrawableCount = want }
+        }
         let backing = Double(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
         let s = max(0.25, backing * effectiveProfile.resolutionScale)
         let size = CGSize(width: max(1, (Double(bounds.width) * s).rounded()), height: max(1, (Double(bounds.height) * s).rounded()))
