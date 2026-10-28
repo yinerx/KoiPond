@@ -72,8 +72,9 @@ public final class PondDriver: NSObject {
         let now = CACurrentMediaTime()
         for v in views where v.isVisibleForRendering {
             let want = v.desiredFPS, id = ObjectIdentifier(v)
-            // due when its own frame interval has (nearly) passed
-            if now - (lastRender[id] ?? 0) >= 0.9 / want {
+            // due when three quarters of its frame interval have passed: display-link ticks jitter, and a
+            // tighter cut skipped every early tick (~10 frames/s lost at 60 Hz); on 120 Hz it still holds 60
+            if now - (lastRender[id] ?? 0) >= 0.75 / want {
                 v.renderFrame()
                 lastRender[id] = now
             }
