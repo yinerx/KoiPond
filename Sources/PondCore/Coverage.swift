@@ -10,6 +10,11 @@ public enum Coverage {
         @inlinable public func contains(_ px: Double, _ py: Double) -> Bool { px >= x && py >= y && px < x + w && py < y + h }
     }
 
+    /// Which windows can hide the wallpaper: ordinary app windows only (layer 0 — full-screen apps too).
+    /// System overlays sit on higher layers and must not count: the Dock keeps a transparent window over the
+    /// whole screen (layer 20), and the menu bar and Control Center are thin strips (layers 24–25).
+    public static func counts(layer: Int, alpha: Double) -> Bool { layer == 0 && alpha > 0.5 }
+
     /// True if `windows` hide all of `screen` (same coordinate space), checked on a `cols × rows` grid.
     public static func isCovered(_ screen: Rect, by windows: [Rect], cols: Int = 16, rows: Int = 10) -> Bool {
         guard screen.w > 0, screen.h > 0, !windows.isEmpty else { return false }

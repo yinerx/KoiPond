@@ -248,3 +248,24 @@ final class CoverageTests: XCTestCase {
         XCTAssertTrue(Coverage.isCovered(second, by: [R(x: 1900, y: -20, w: 1500, h: 1000)]))
     }
 }
+
+final class CoverageFilterTests: XCTestCase {
+    func testOnlyAppWindowsCanHideTheWallpaper() {
+        XCTAssertTrue(Coverage.counts(layer: 0, alpha: 1), "app windows, full-screen apps")
+        XCTAssertFalse(Coverage.counts(layer: 20, alpha: 1), "the Dock's transparent full-screen window")
+        XCTAssertFalse(Coverage.counts(layer: 24, alpha: 1), "menu bar")
+        XCTAssertFalse(Coverage.counts(layer: 25, alpha: 1), "Control Center, Spotlight")
+        XCTAssertFalse(Coverage.counts(layer: 0, alpha: 0.2), "a faded window")
+    }
+    /// The window list a macOS runner reported: menu bar strips, the Dock over the whole screen, one app window.
+    func testRunnerWindowListLeavesTheWallpaperVisible() {
+        let screen = Coverage.Rect(x: 0, y: 0, w: 1024, h: 768)
+        let list: [(Int, Coverage.Rect)] = [
+            (25, .init(x: 803, y: 0, w: 31, h: 24)), (24, .init(x: 0, y: 0, w: 1024, h: 24)),
+            (20, .init(x: 0, y: 0, w: 1024, h: 768)), (0, .init(x: 100, y: 40, w: 900, h: 628)),
+        ]
+        let counted = list.filter { Coverage.counts(layer: $0.0, alpha: 1) }.map { $0.1 }
+        XCTAssertFalse(Coverage.isCovered(screen, by: counted))
+        XCTAssertTrue(Coverage.isCovered(screen, by: counted + [.init(x: 0, y: 0, w: 1024, h: 768)]), "a full-screen app does hide it")
+    }
+}

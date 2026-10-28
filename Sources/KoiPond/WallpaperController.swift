@@ -32,7 +32,8 @@ final class WallpaperController {
                   let b = w[kCGWindowBounds as String] as? [String: CGFloat] else { return nil }
             let owner = w[kCGWindowOwnerName as String] as? String ?? "?"
             let alpha = w[kCGWindowAlpha as String] as? CGFloat ?? 1
-            return "  \(owner) layer \(layer) alpha \(String(format: "%.2f", Double(alpha))) at \(Int(b["X"] ?? 0)),\(Int(b["Y"] ?? 0)) \(Int(b["Width"] ?? 0))x\(Int(b["Height"] ?? 0))"
+            let counted = Coverage.counts(layer: layer, alpha: Double(alpha))
+            return "  \(counted ? "counts " : "ignored") \(owner) layer \(layer) alpha \(String(format: "%.2f", Double(alpha))) at \(Int(b["X"] ?? 0)),\(Int(b["Y"] ?? 0)) \(Int(b["Width"] ?? 0))x\(Int(b["Height"] ?? 0))"
         }
     }
 
@@ -139,10 +140,10 @@ final class WallpaperController {
         let mine = Set(windows.map { $0.0.windowNumber })
         var rects: [Coverage.Rect] = []
         for w in info {
-            guard let layer = w[kCGWindowLayer as String] as? Int, layer >= 0,
+            guard let layer = w[kCGWindowLayer as String] as? Int,
+                  Coverage.counts(layer: layer, alpha: Double(w[kCGWindowAlpha as String] as? CGFloat ?? 1)),
                   let num = w[kCGWindowNumber as String] as? Int, !mine.contains(num),
-                  let b = w[kCGWindowBounds as String] as? [String: CGFloat],
-                  (w[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0.5 else { continue }
+                  let b = w[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
             rects.append(Coverage.Rect(x: Double(b["X"] ?? 0), y: Double(b["Y"] ?? 0), w: Double(b["Width"] ?? 0), h: Double(b["Height"] ?? 0)))
         }
         // CG bounds: top-left origin on the primary screen; AppKit frames: bottom-left

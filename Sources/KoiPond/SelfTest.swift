@@ -40,9 +40,9 @@ final class SelfTest {
             self.diagnose("before visible phase")
             self.measure("visible", for: self.seconds) { r in
                 self.diagnose("after visible phase")
-                self.expect(r.window.onScreen >= 30, "window shows fresh frames (\(f(r.window.onScreen))/s on screen, smooth profile)")
+                self.expect(r.window.onScreen >= 30, "window presents fresh frames (\(f(r.window.onScreen))/s, smooth profile)")
                 for (i, w) in r.wallpaper.enumerated() {
-                    self.expect(w.onScreen >= 4, "wallpaper \(i + 1) shows fresh frames (\(f(w.onScreen))/s on screen, balanced profile)")
+                    self.expect(w.onScreen >= 4, "wallpaper \(i + 1) presents fresh frames (\(f(w.onScreen))/s, balanced profile)")
                     self.expect(w.rendered <= 32, "wallpaper \(i + 1) stays near its profile rate (\(f(w.rendered))/s)")
                 }
                 self.coverEverything()
@@ -67,14 +67,15 @@ final class SelfTest {
         say("window:      " + pond.visibilityDebug)
         for (i, v) in wallpaper.views.enumerated() { say("wallpaper \(i + 1): " + v.visibilityDebug) }
         say("screens: " + NSScreen.screens.map { "\(Int($0.frame.minX)),\(Int($0.frame.minY)) \(Int($0.frame.width))x\(Int($0.frame.height))" }.joined(separator: "; "))
-        say("windows counted for coverage:")
+        say("on-screen windows above the desktop:")
         wallpaper.coverageDebug().forEach(say)
     }
 
     struct Rates { var rendered = 0.0, drawn = 0.0, onScreen = 0.0 }
     struct Result { var window = Rates(); var wallpaper: [Rates] = []; var cpu = 0.0 }
 
-    private func counters(_ v: PondView) -> (Int, Int, Int) { (v.framesRendered, v.framesDrawn, v.framesOnScreen) }
+    // third counter: presented callbacks (a virtual display gives no timestamps, so presentedTime stays 0 there)
+    private func counters(_ v: PondView) -> (Int, Int, Int) { (v.framesRendered, v.framesDrawn, v.framesPresented) }
 
     private func measure(_ phase: String, for s: Double, then: @escaping (Result) -> Void) {
         let views = [pond!] + wallpaper.views
@@ -88,7 +89,7 @@ final class SelfTest {
             let r = Result(window: rates[0], wallpaper: Array(rates.dropFirst()), cpu: (SelfTest.cpuSeconds() - cpu0) / span * 100)
             self.say("[\(phase)] CPU \(f(r.cpu)) %, memory \(f(PondView.footprintMB())) MB")
             for (i, x) in rates.enumerated() {
-                self.say("[\(phase)] \(i == 0 ? "window     " : "wallpaper \(i)") rendered \(f(x.rendered))/s, drawn \(f(x.drawn))/s, on screen \(f(x.onScreen))/s")
+                self.say("[\(phase)] \(i == 0 ? "window     " : "wallpaper \(i)") rendered \(f(x.rendered))/s, drawn \(f(x.drawn))/s, presented \(f(x.onScreen))/s")
             }
             then(r)
         }
