@@ -82,58 +82,86 @@ final class UpdateChecker {
     }
 
     func check(userInitiated: Bool) {
-        if let w = updateWindow { w.show(); return }     // an update is already under way
+        if let w = updateWindow { w.show(); return }     // a check or an update is already on screen
         guard !busy else { return }
+        guard userInitiated else { checkQuietly(); return }
+        // a manual check opens the window at once and shows the answer in it
+        let flow = UpdateFlow(.checking)
+        let c = makeController(flow)
+        updateWindow = c
+        c.show()
+        run(in: flow)
+    }
+
+    /// Automatic checks stay silent; only a new version opens the window.
+    private func checkQuietly() {
         busy = true
         fetchLatest { result in
             self.busy = false
             self.state.lastUpdateCheck = Date()
-            switch result {
-            case .success(let rel): self.handle(rel, userInitiated: userInitiated)
-            case .failure(let f): if userInitiated { self.report(f) }
+            guard case .success(let rel) = result,
+                  case .available(let v) = UpdateCheck.evaluate(current: UpdateChecker.currentVersion, release: rel,
+                                                                 skippedVersion: self.state.skippedVersion,
+                                                                 includePrereleases: self.state.includePrereleases)
+            else { return }
+            let flow = UpdateFlow(.update(UpdateSession(release: rel, version: v, currentVersion: UpdateChecker.currentVersion)))
+            let c = self.makeController(flow)
+            self.updateWindow = c
+            c.show()
+        }
+    }
+
+    /// Asks GitHub and puts the answer into `flow`. The checking animation stays at least 0.8 s, so a fast
+    /// answer does not just flash past.
+    private func run(in flow: UpdateFlow) {
+        busy = true
+        flow.stage = .checking
+        let started = Date()
+        fetchLatest { result in
+            let wait = max(0, 0.8 - Date().timeIntervalSince(started))
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+                self.busy = false
+                self.state.lastUpdateCheck = Date()
+                guard self.updateWindow?.flow === flow else { return }   // the window was closed meanwhile
+                flow.stage = self.stage(for: result)
             }
         }
     }
 
-    private func report(_ f: FetchFailure) {
-        switch f {
-        case .noRelease: info("还没有发布版本", "GitHub 上的 \(UpdateChecker.repo) 还没有正式发布。")
-        case .http(let c): info("检查更新失败", "GitHub 返回了 \(c)。稍后再试。")
-        case .network(let m): info("检查更新失败", m)
-        case .rejected(let api, let detail):
-            info("检查更新失败",
-                 "GitHub 暂时拒绝了查询（\(api)），改用网页查询也没有成功" + (detail.map { "：\($0)" } ?? "。") +
-                 "\n\n可能是网络无法访问 github.com。也可以直接打开发布页查看：https://github.com/\(UpdateChecker.repo)/releases")
+    private func stage(for result: Result<GitHubRelease, FetchFailure>) -> UpdateFlow.Stage {
+        let current = UpdateChecker.currentVersion
+        switch result {
+        case .failure(let f): return .failed(message(for: f))
+        case .success(let rel):
+            switch UpdateCheck.evaluate(current: current, release: rel, includePrereleases: state.includePrereleases) {
+            case .available(let v): return .update(UpdateSession(release: rel, version: v, currentVersion: current))
+            case .upToDate, .skipped: return .upToDate(current)
+            case .unusable(let why): return .failed("无法比较版本：\(why)")
+            }
         }
     }
 
-    private func handle(_ rel: GitHubRelease, userInitiated: Bool) {
-        let result = UpdateCheck.evaluate(current: UpdateChecker.currentVersion, release: rel,
-                                          skippedVersion: userInitiated ? nil : state.skippedVersion,
-                                          includePrereleases: state.includePrereleases)
-        switch result {
-        case .upToDate:
-            if userInitiated { info("已是最新版本", "当前版本 \(UpdateChecker.currentVersion)。") }
-        case .skipped:
-            break
-        case .unusable(let why):
-            if userInitiated { info("无法比较版本", why) }
-        case .available(let v):
-            present(rel, version: v)
+    private func message(for f: FetchFailure) -> String {
+        switch f {
+        case .noRelease: return "GitHub 上的 \(UpdateChecker.repo) 还没有正式发布。"
+        case .http(let c): return "GitHub 返回了 \(c)。稍后再试。"
+        case .network(let m): return "连不上 GitHub：\(m)"
+        case .rejected(let api, let detail):
+            return "GitHub 暂时拒绝了查询（\(api)），改用网页查询也没有成功" + (detail.map { "：\($0)" } ?? "。") +
+                "可能是网络无法访问 github.com。"
         }
     }
 
     // MARK: the update window
 
-    private func present(_ rel: GitHubRelease, version: SemVer) {
-        let session = UpdateSession(release: rel, version: version, currentVersion: UpdateChecker.currentVersion)
-        let c = UpdateWindowController(session: session)
+    private func makeController(_ flow: UpdateFlow) -> UpdateWindowController {
+        let c = UpdateWindowController(flow: flow)
         c.onRestart = { [weak self] app in self?.install(app, relaunch: true) }
         c.onLater = { [weak self] app in self?.pendingInstall = app }
         c.onSkip = { [weak self] v in self?.state.skippedVersion = v.description }
+        c.onRetry = { [weak self, weak flow] in if let flow { self?.run(in: flow) } }
         c.onClosed = { [weak self] in self?.updateWindow = nil }
-        updateWindow = c
-        c.show()
+        return c
     }
 
     /// Called from applicationWillTerminate: a downloaded update the user put off goes in now.
@@ -187,12 +215,18 @@ final class UpdateChecker {
         func say(_ s: String) { print(s); fflush(stdout) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 180) { say("UPDATE TEST FAIL: timed out"); exit(1) }
         say("update test: asking GitHub for the newest release of \(UpdateChecker.repo)")
+        // the real window, so its checking and download views are drawn on a real Mac too
+        let flow = UpdateFlow(.checking)
+        let window = makeController(flow)
+        updateWindow = window
+        window.show()
         fetchLatest { result in
             guard case .success(let rel) = result, let v = rel.version else {
                 say("UPDATE TEST FAIL: could not find the newest release (\(result))"); exit(1)
             }
             say("update test: newest is \(rel.tagName), asset \(rel.appAsset?.name ?? "none")")
             let session = UpdateSession(release: rel, version: v, currentVersion: UpdateChecker.currentVersion)
+            flow.stage = .update(session)
             var lastShown = -1
             session.$phase.sink { phase in
                 switch phase {

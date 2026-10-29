@@ -216,27 +216,176 @@ struct UpdateView: View {
     }
 }
 
-/// Holds the small update window and what its buttons do.
+// MARK: - One window for the whole check
+
+/// What the update window shows: checking first, then the answer.
+final class UpdateFlow: ObservableObject {
+    enum Stage {
+        case checking
+        case upToDate(String)          // current version
+        case failed(String)
+        case update(UpdateSession)
+    }
+    @Published var stage: Stage
+    init(_ stage: Stage) { self.stage = stage }
+}
+
+struct UpdateFlowView: View {
+    @ObservedObject var flow: UpdateFlow
+    var onRestart: () -> Void
+    var onLater: () -> Void
+    var onSkip: () -> Void
+    var onOpenPage: () -> Void
+    var onRetry: () -> Void
+    var onClose: () -> Void
+
+    var body: some View {
+        switch flow.stage {
+        case .checking:
+            CheckingView(onCancel: onClose)
+        case .upToDate(let v):
+            ResultView(symbol: "checkmark.circle.fill", tint: .green, title: "已是最新版本",
+                       detail: "KoiPond \(v) 是目前最新的版本。") {
+                Spacer()
+                Button("好", action: onClose).keyboardShortcut(.defaultAction)
+            }
+        case .failed(let msg):
+            ResultView(symbol: "exclamationmark.triangle.fill", tint: .orange, title: "检查更新失败", detail: msg) {
+                Button("打开发布页", action: onOpenPage)
+                Spacer()
+                Button("关闭", action: onClose).keyboardShortcut(.cancelAction)
+                Button("重试", action: onRetry).keyboardShortcut(.defaultAction)
+            }
+        case .update(let session):
+            UpdateView(session: session, onRestart: onRestart, onLater: onLater, onSkip: onSkip,
+                       onOpenPage: onOpenPage, onClose: onClose)
+        }
+    }
+}
+
+struct CheckingView: View {
+    var onCancel: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if reduceMotion {
+                ProgressView().controlSize(.large).frame(width: 160, height: 96)
+            } else {
+                PondCheckingAnimation().frame(width: 160, height: 96)
+            }
+            Text("正在检查更新…").font(.headline)
+            Text("正在向 GitHub 查询 KoiPond 的最新版本").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("取消", action: onCancel).keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 440)
+    }
+}
+
+struct ResultView<Buttons: View>: View {
+    let symbol: String
+    let tint: Color
+    let title: String
+    let detail: String
+    @ViewBuilder var buttons: () -> Buttons
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: symbol).font(.system(size: 34)).foregroundStyle(tint)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline)
+                    Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            HStack { buttons() }
+        }
+        .padding(18)
+        .frame(width: 440)
+    }
+}
+
+/// A tiny pond while we wait: a pellet in the middle, character ripples spreading from it,
+/// and a little tile koi circling. Drawn only while the window is on screen.
+struct PondCheckingAnimation: View {
+    private let water = Color(red: 0x1b / 255, green: 0x1a / 255, blue: 0x19 / 255)
+    private let ripple = Color(red: 0x8f / 255, green: 0x8b / 255, blue: 0x85 / 255)
+    private let pellet = Color(red: 0xd8 / 255, green: 0x8a / 255, blue: 0x3c / 255)
+    private let body_ = Color(red: 0x9e / 255, green: 0x9a / 255, blue: 0x94 / 255)
+    private let red = Color(red: 0xb4 / 255, green: 0x3e / 255, blue: 0x1c / 255)
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            Canvas { ctx, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let c = CGPoint(x: size.width / 2, y: size.height / 2)
+                ctx.fill(Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 10), with: .color(water))
+                let glyphFont = Font.system(size: 9, weight: .medium, design: .monospaced)
+                // three ripple rings, each spreading and fading, staggered
+                for k in 0..<3 {
+                    let phase = (t / 1.8 + Double(k) / 3).truncatingRemainder(dividingBy: 1)
+                    let r = 7 + phase * 46, alpha = (1 - phase) * 0.9
+                    let n = max(8, Int(2 * Double.pi * r / 7))
+                    for i in 0..<n {
+                        let a = Double(i) / Double(n) * 2 * Double.pi
+                        let p = CGPoint(x: c.x + cos(a) * r, y: c.y + sin(a) * r * 0.6)
+                        let g = Character(UnicodeScalar(Glyph.line(angle: atan2(cos(a) * 0.6, -sin(a)))))
+                        ctx.draw(Text(String(g)).font(glyphFont).foregroundColor(ripple.opacity(alpha)), at: p)
+                    }
+                }
+                ctx.draw(Text("o").font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundColor(pellet), at: c)
+                // a little koi of four tiles circling the pellet, head first
+                for j in 0..<4 {
+                    let a = t * 1.5 - Double(j) * 0.26
+                    let p = CGPoint(x: c.x + cos(a) * 52, y: c.y + sin(a) * 28)
+                    let tile = CGRect(x: p.x - 3.5, y: p.y - 3.5, width: 7, height: 7)
+                    ctx.fill(Path(roundedRect: tile, cornerRadius: 1), with: .color(j == 1 || j == 2 ? red : body_))
+                }
+            }
+        }
+    }
+}
+
+/// Holds the update window and what its buttons do. The same window goes from "checking" to the answer.
 final class UpdateWindowController: NSObject, NSWindowDelegate {
-    let session: UpdateSession
+    let flow: UpdateFlow
     private var window: NSWindow?
     var onRestart: ((URL) -> Void)?
     var onLater: ((URL) -> Void)?
     var onSkip: ((SemVer) -> Void)?
+    var onRetry: (() -> Void)?
     var onClosed: (() -> Void)?
 
-    init(session: UpdateSession) { self.session = session }
+    init(flow: UpdateFlow) { self.flow = flow }
+
+    var session: UpdateSession? { if case .update(let s) = flow.stage { return s }; return nil }
 
     func show() {
         if window == nil {
-            let view = UpdateView(
-                session: session,
-                onRestart: { [weak self] in guard let self, let app = self.session.newApp else { return }; self.onRestart?(app) },
-                onLater: { [weak self] in guard let self, let app = self.session.newApp else { return }; self.onLater?(app); self.close() },
-                onSkip: { [weak self] in guard let self else { return }; self.session.cancel(); self.onSkip?(self.session.version); self.close() },
-                onOpenPage: { [weak self] in guard let self else { return }; NSWorkspace.shared.open(self.session.release.htmlURL) },
-                onClose: { [weak self] in self?.session.cancel(); self?.close() })
-            let w = NSWindow(contentViewController: NSHostingController(rootView: view))
+            let view = UpdateFlowView(
+                flow: flow,
+                onRestart: { [weak self] in guard let self, let app = self.session?.newApp else { return }; self.onRestart?(app) },
+                onLater: { [weak self] in guard let self, let app = self.session?.newApp else { return }; self.onLater?(app); self.close() },
+                onSkip: { [weak self] in
+                    guard let self, let s = self.session else { return }
+                    s.cancel(); self.onSkip?(s.version); self.close()
+                },
+                onOpenPage: { [weak self] in
+                    let url = self?.session?.release.htmlURL ?? URL(string: "https://github.com/\(UpdateChecker.repo)/releases")!
+                    NSWorkspace.shared.open(url)
+                },
+                onRetry: { [weak self] in
+                    guard let self else { return }
+                    if let s = self.session { s.start() } else { self.onRetry?() }
+                },
+                onClose: { [weak self] in self?.session?.cancel(); self?.close() })
+            let host = NSHostingController(rootView: view)
+            host.sizingOptions = [.preferredContentSize]      // the window follows the content as it changes
+            let w = NSWindow(contentViewController: host)
             w.title = "软件更新"
             w.styleMask = [.titled, .closable]
             w.isReleasedWhenClosed = false
@@ -251,8 +400,10 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
     func close() { window?.close() }
 
     func windowWillClose(_ notification: Notification) {
-        // closing with the red button while downloading cancels; a finished download installs on quit
-        if case .ready = session.phase, let app = session.newApp { onLater?(app) } else { session.cancel() }
+        // closing while downloading cancels; a finished download installs on quit
+        if let s = session {
+            if case .ready = s.phase, let app = s.newApp { onLater?(app) } else { s.cancel() }
+        }
         onClosed?()
     }
 }
