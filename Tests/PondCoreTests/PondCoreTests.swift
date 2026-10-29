@@ -337,3 +337,20 @@ final class RasterizeTests: XCTestCase {
         XCTAssertGreaterThan(checked, 10_000, "the comparison must cover plenty of cells")
     }
 }
+
+final class DownloadProgressTests: XCTestCase {
+    func testText() {
+        XCTAssertEqual(DownloadProgress(received: 1_258_291, total: 1_782_579).text, "1.2 / 1.7 MB（70%）")
+        XCTAssertEqual(DownloadProgress(received: 1_782_579, total: 1_782_579).text, "1.7 / 1.7 MB（100%）")
+        XCTAssertEqual(DownloadProgress(received: 524_288, total: nil).text, "0.5 MB")
+        XCTAssertNil(DownloadProgress(received: 10, total: 0).fraction, "a zero length means unknown")
+        XCTAssertEqual(DownloadProgress(received: 900, total: 600).fraction, 1, "never past the end")
+    }
+    func testExpectedUpdate() {
+        let id = "io.github.yinerx.koipond"
+        XCTAssertTrue(UpdateCheck.isExpectedUpdate(bundleID: id, version: "0.4.0", expectedBundleID: id, expected: SemVer(0, 4, 0)))
+        XCTAssertFalse(UpdateCheck.isExpectedUpdate(bundleID: id, version: "0.3.0", expectedBundleID: id, expected: SemVer(0, 4, 0)), "older build in the zip")
+        XCTAssertFalse(UpdateCheck.isExpectedUpdate(bundleID: "com.other.app", version: "0.4.0", expectedBundleID: id, expected: SemVer(0, 4, 0)))
+        XCTAssertFalse(UpdateCheck.isExpectedUpdate(bundleID: id, version: nil, expectedBundleID: id, expected: SemVer(0, 4, 0)))
+    }
+}

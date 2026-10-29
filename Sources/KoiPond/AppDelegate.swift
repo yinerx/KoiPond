@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     func applicationDidFinishLaunching(_ note: Notification) {
         let args = CommandLine.arguments
+        if args.contains("--test-update") {
+            updater.runDownloadTest()
+            return
+        }
         if let i = args.firstIndex(of: "--selftest") {
             let secs = args.count > i + 1 ? Double(args[i + 1]) ?? 6 : 6
             selfTest = SelfTest(state: state, seconds: secs)
@@ -61,7 +65,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         return true
     }
 
-    func applicationWillTerminate(_ note: Notification) { state.save(state.config) }
+    func applicationWillTerminate(_ note: Notification) {
+        state.save(state.config)
+        updater.installPendingOnQuit()     // an update downloaded with "稍后" goes in now
+    }
 
     // MARK: modes
 
